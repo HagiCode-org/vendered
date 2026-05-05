@@ -5,12 +5,16 @@ import os from "node:os"
 import path from "node:path"
 
 import {
+  blobExists,
+  buildBlobUrl,
   buildBlobKey,
   createEmptyVersionIndex,
   createPublishResult,
+  downloadBlobText,
   loadPublishInputs,
   mergeVersionIndex,
   parseContainerSasUrl,
+  uploadBlobFromFile,
 } from "./publication.mjs"
 
 test("parseContainerSasUrl extracts account container and token from one URL", () => {
@@ -24,6 +28,16 @@ test("parseContainerSasUrl extracts account container and token from one URL", (
       sasToken: "sp=racwdl&st=2026-05-05T00%3A00%3A00Z&sig=testsig",
       containerUrl: "https://hagicode.blob.core.windows.net/vendored-artifacts",
     },
+  )
+})
+
+test("buildBlobUrl encodes blob paths and preserves SAS query", () => {
+  assert.equal(
+    buildBlobUrl(
+      "https://hagicode.blob.core.windows.net/vendored-artifacts?sp=racwdl&sig=testsig",
+      "packages/code-server/versions/1.2.3/linux amd64/metadata.json",
+    ),
+    "https://hagicode.blob.core.windows.net/vendored-artifacts/packages/code-server/versions/1.2.3/linux%20amd64/metadata.json?sp=racwdl&sig=testsig",
   )
 })
 
@@ -326,6 +340,62 @@ test("loadPublishInputs fails when metadata is incomplete", async () => {
 
     await assert.rejects(() => loadPublishInputs(tempDirectory), /packageId in .*metadata\.json must be a non-empty string/)
   } finally {
+    await rm(tempDirectory, { recursive: true, force: true })
+  }
+})
+
+test("blobExists and downloadBlobText use fetch against blob URLs", async () => {
+  const originalFetch = global.fetch
+  const requests = []
+
+  global.fetch = async (url, options) => {
+    requests.push({ url, options })
+
+    if (options.method === "HEAD") {
+      return new Response(null, { status: 200 })
+    }
+
+    return new Response('{"hello":"world"}', { status: 200 })
+  }
+
+  try {
+    const sasUrl = "https://hagicode.blob.core.windows.net/vendored-artifacts?sp=r&sig=testsig"
+    assert.equal(await blobExists(sasUrl, "index.json"), true)
+    assert.equal(await downloadBlobText(sasUrl, "index.json"), '{"hello":"world"}')
+    assert.equal(requests[0].options.method, "HEAD")
+    assert.equal(requests[1].options.method, "GET")
+  } finally {
+    global.fetch = originalFetch
+  }
+})
+
+test("uploadBlobFromFile uploads via fetch with blob headers", async () => {
+  const originalFetch = global.fetch
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "vendored-upload-test-"))
+
+  try {
+    const filePath = path.join(tempDirectory, "metadata.json")
+    await writeFile(filePath, '{"ok":true}')
+
+    const requests = []
+    global.fetch = async (url, options) => {
+      requests.push({ url, options })
+      return new Response(null, { status: 201 })
+    }
+
+    await uploadBlobFromFile(
+      "https://hagicode.blob.core.windows.net/vendored-artifacts?sp=racwdl&sig=testsig",
+      "packages/code-server/versions/1.2.3/linux-amd64/metadata.json",
+      filePath,
+      { contentType: "application/json" },
+    )
+
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0].options.method, "PUT")
+    assert.equal(requests[0].options.headers["x-ms-blob-type"], "BlockBlob")
+    assert.equal(requests[0].options.headers["x-ms-blob-content-type"], "application/json")
+  } finally {
+    global.fetch = originalFetch
     await rm(tempDirectory, { recursive: true, force: true })
   }
 })

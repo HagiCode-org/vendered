@@ -1,9 +1,10 @@
-import { access, readFile, readdir } from "node:fs/promises"
+import { access, readFile, readdir, stat } from "node:fs/promises"
 import path from "node:path"
 
 export const PUBLICATION_SCHEMA_VERSION = 1
 export const VERSION_INDEX_SCHEMA_VERSION = 1
 export const VERSION_INDEX_BLOB_KEY = "index.json"
+const AZURE_BLOB_API_VERSION = "2023-11-03"
 
 export function parseContainerSasUrl(rawValue) {
   assertNonEmptyString(rawValue, "container SAS URL")
@@ -30,6 +31,58 @@ export function parseContainerSasUrl(rawValue) {
     sasToken,
     containerUrl: `${url.origin}/${containerName}`,
   }
+}
+
+export function buildBlobUrl(containerSasUrl, blobKey) {
+  const { containerUrl, sasToken } = parseContainerSasUrl(containerSasUrl)
+  assertNonEmptyString(blobKey, "blobKey")
+
+  const url = new URL(containerUrl)
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/${encodeBlobKey(blobKey)}`
+  url.search = sasToken
+  return url.toString()
+}
+
+export async function uploadBlobFromFile(containerSasUrl, blobKey, localPath, options = {}) {
+  const fileBuffer = await readFile(localPath)
+  const fileStats = await stat(localPath)
+
+  await azureBlobRequest(buildBlobUrl(containerSasUrl, blobKey), {
+    method: "PUT",
+    headers: {
+      "x-ms-blob-type": "BlockBlob",
+      "x-ms-version": AZURE_BLOB_API_VERSION,
+      "x-ms-date": new Date().toUTCString(),
+      "x-ms-blob-content-type": options.contentType || "application/octet-stream",
+      "Content-Length": String(fileStats.size),
+    },
+    body: fileBuffer,
+  })
+}
+
+export async function blobExists(containerSasUrl, blobKey) {
+  const response = await azureBlobRequest(buildBlobUrl(containerSasUrl, blobKey), {
+    method: "HEAD",
+    headers: {
+      "x-ms-version": AZURE_BLOB_API_VERSION,
+      "x-ms-date": new Date().toUTCString(),
+    },
+    allow404: true,
+  })
+
+  return response.status !== 404
+}
+
+export async function downloadBlobText(containerSasUrl, blobKey) {
+  const response = await azureBlobRequest(buildBlobUrl(containerSasUrl, blobKey), {
+    method: "GET",
+    headers: {
+      "x-ms-version": AZURE_BLOB_API_VERSION,
+      "x-ms-date": new Date().toUTCString(),
+    },
+  })
+
+  return response.text()
 }
 
 export function buildBlobPrefix({ packageId, version, platform, arch }) {
@@ -411,4 +464,32 @@ function compareArtifacts(left, right) {
     left.kind.localeCompare(right.kind) ||
     left.fileName.localeCompare(right.fileName)
   )
+}
+
+function encodeBlobKey(blobKey) {
+  return blobKey
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")
+}
+
+async function azureBlobRequest(url, options) {
+  const response = await fetch(url, {
+    method: options.method,
+    headers: options.headers,
+    body: options.body,
+  })
+
+  if (options.allow404 && response.status === 404) {
+    return response
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "")
+    throw new Error(
+      `Azure Blob request failed with ${response.status} ${response.statusText}${body ? `: ${body}` : ""}`,
+    )
+  }
+
+  return response
 }

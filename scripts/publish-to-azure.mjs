@@ -3,9 +3,8 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
-import { spawn } from "node:child_process"
 
-import { createPublishResult, loadPublishInputs, parseContainerSasUrl } from "./publication.mjs"
+import { createPublishResult, loadPublishInputs, parseContainerSasUrl, uploadBlobFromFile } from "./publication.mjs"
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.stack || error.message : String(error))
@@ -34,27 +33,9 @@ async function main() {
 
   const { metadataRecords, uploadPlans } = await loadPublishInputs(artifactsDir)
   for (const uploadPlan of uploadPlans) {
-    await runAz([
-      "storage",
-      "blob",
-      "upload",
-      "--account-name",
-      accountName,
-      "--container-name",
-      containerName,
-      "--sas-token",
-      sasToken,
-      "--name",
-      uploadPlan.blobKey,
-      "--file",
-      uploadPlan.localPath,
-      "--overwrite",
-      "true",
-      ...(uploadPlan.kind === "metadata" ? ["--content-type", "application/json"] : []),
-      "--only-show-errors",
-      "--output",
-      "none",
-    ])
+    await uploadBlobFromFile(requireEnv("AZURE_STORAGE_CONTAINER_SAS_URL"), uploadPlan.blobKey, uploadPlan.localPath, {
+      contentType: uploadPlan.kind === "metadata" ? "application/json" : "application/octet-stream",
+    })
   }
 
   const publishResult = createPublishResult(metadataRecords, {
@@ -74,27 +55,4 @@ function requireEnv(name) {
     throw new Error(`Missing required environment variable: ${name}`)
   }
   return value
-}
-
-function runAz(args) {
-  return run("az", args)
-}
-
-function run(command, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: "inherit",
-      env: process.env,
-    })
-
-    child.on("error", reject)
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve()
-        return
-      }
-
-      reject(new Error(`${command} ${args.join(" ")} exited with code ${code}`))
-    })
-  })
 }
