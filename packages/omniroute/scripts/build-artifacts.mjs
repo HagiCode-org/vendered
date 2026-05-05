@@ -15,6 +15,7 @@ const root = path.resolve(packageRoot, "../..")
 const upstreamRoot = path.join(packageRoot, "upstream")
 const artifactsDir = path.join(root, process.env.ARTIFACTS_OUTPUT_DIR || path.join("artifacts", "omniroute"))
 const releaseWorkspace = path.join(root, "release", "omniroute")
+const windowsHomeRoot = path.join(root, ".tmp", "omniroute-windows-home")
 const packageId = "omniroute"
 const platform = normalizePlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
 const arch = normalizeArch(process.env.ARCH || process.arch)
@@ -40,6 +41,7 @@ async function main() {
   await mkdir(releaseWorkspace, { recursive: true })
 
   if (platform === "windows") {
+    await ensureWindowsBuildHomes()
     await patchWindowsPrepublishCommands()
   }
 
@@ -180,14 +182,41 @@ async function readUpstreamVersion() {
 }
 
 function withBuildEnv(env, version) {
+  const windowsEnv =
+    platform === "windows"
+      ? {
+          HOME: windowsHomeRoot,
+          USERPROFILE: windowsHomeRoot,
+          APPDATA: path.join(windowsHomeRoot, "AppData", "Roaming"),
+          LOCALAPPDATA: path.join(windowsHomeRoot, "AppData", "Local"),
+          TEMP: path.join(windowsHomeRoot, "Temp"),
+          TMP: path.join(windowsHomeRoot, "Temp"),
+        }
+      : {}
+
   return {
     ...env,
+    ...windowsEnv,
     CI: "true",
     npm_config_fund: "false",
     npm_config_audit: "false",
     OMNIROUTE_NPM_BIN: env.OMNIROUTE_NPM_BIN || "npm",
     OMNIROUTE_NPX_BIN: env.OMNIROUTE_NPX_BIN || "npx",
     VERSION: env.VERSION || version,
+  }
+}
+
+async function ensureWindowsBuildHomes() {
+  const directories = [
+    windowsHomeRoot,
+    path.join(windowsHomeRoot, "AppData"),
+    path.join(windowsHomeRoot, "AppData", "Roaming"),
+    path.join(windowsHomeRoot, "AppData", "Local"),
+    path.join(windowsHomeRoot, "Temp"),
+  ]
+
+  for (const directory of directories) {
+    await mkdir(directory, { recursive: true })
   }
 }
 
