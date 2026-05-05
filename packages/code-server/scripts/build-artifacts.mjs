@@ -211,7 +211,7 @@ function getCommand(command) {
 
 function getBashCommand() {
   if (process.platform === "win32") {
-    return process.env.BASH_PATH || process.env.NPM_CONFIG_SCRIPT_SHELL || "C:\\msys64\\usr\\bin\\bash.exe"
+    return "C:\\Windows\\System32\\cmd.exe"
   }
   return "bash"
 }
@@ -222,8 +222,23 @@ function getQuiltPushCommand() {
 
 function runBash(script, options = {}) {
   if (process.platform === "win32") {
-    const command = `source /etc/profile && export PATH=\"/usr/bin:/bin:$PATH\" && ${script}`
-    return run(getBashCommand(), ["--login", "-lc", command], options)
+    return run(
+      getBashCommand(),
+      [
+        "/d",
+        "/s",
+        "/c",
+        "C:\\msys64\\msys2_shell.cmd",
+        "-defterm",
+        "-no-start",
+        "-msys",
+        "-shell",
+        "bash",
+        "-lc",
+        script,
+      ],
+      options,
+    )
   }
   return run(getBashCommand(), ["-lc", script], options)
 }
