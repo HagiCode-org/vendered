@@ -229,7 +229,16 @@ function getCommand(command) {
 function run(command, args, options = {}) {
   const finalCommand = getCommand(command)
   return new Promise((resolve, reject) => {
-    const child = spawn(finalCommand, args, {
+    const spawnCommand =
+      process.platform === "win32" && /\.(cmd|bat)$/i.test(finalCommand)
+        ? process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe"
+        : finalCommand
+    const spawnArgs =
+      process.platform === "win32" && /\.(cmd|bat)$/i.test(finalCommand)
+        ? ["/d", "/s", "/c", finalCommand, ...args]
+        : args
+
+    const child = spawn(spawnCommand, spawnArgs, {
       cwd: options.cwd || root,
       env: options.env || process.env,
       stdio: "inherit",
