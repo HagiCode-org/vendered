@@ -138,7 +138,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version-file: packages/omniroute/upstream/.node-version
+          node-version: 24
 
       - name: Download artifacts
         uses: actions/download-artifact@v5
