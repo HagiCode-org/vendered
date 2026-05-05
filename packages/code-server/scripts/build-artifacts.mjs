@@ -48,7 +48,7 @@ async function runBuildPipeline(version) {
   if (platform === "linux") {
     await runBash(
       [
-        "quilt push -a",
+        getQuiltPushCommand(),
         "cd lib/vscode/build",
         "npm ci",
         "cd ..",
@@ -68,7 +68,7 @@ async function runBuildPipeline(version) {
 
   await runBash(
     [
-      "quilt push -a",
+      getQuiltPushCommand(),
       "npm ci",
       "npm run build",
       "npm run build:vscode",
@@ -209,6 +209,10 @@ function getBashCommand() {
     return process.env.BASH_PATH || process.env.NPM_CONFIG_SCRIPT_SHELL || "C:\\msys64\\usr\\bin\\bash.exe"
   }
   return "bash"
+}
+
+function getQuiltPushCommand() {
+  return platform === "windows" ? "/usr/bin/quilt push -a" : "quilt push -a"
 }
 
 function runBash(script, options = {}) {

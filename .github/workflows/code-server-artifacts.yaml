@@ -97,6 +97,8 @@ jobs:
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
+          msystem: MSYS
+          path-type: inherit
           update: true
           install: >-
             diffutils
@@ -106,6 +108,14 @@ jobs:
             rsync
             unzip
             zip
+
+      - name: Verify MSYS2 toolchain
+        if: runner.os == 'Windows'
+        shell: C:\msys64\usr\bin\bash.exe --login -eo pipefail {0}
+        run: |
+          command -v quilt
+          command -v rsync
+          command -v patch
 
       - name: Set build version
         shell: bash
