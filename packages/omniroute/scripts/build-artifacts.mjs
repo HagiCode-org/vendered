@@ -185,8 +185,8 @@ function withBuildEnv(env, version) {
     CI: "true",
     npm_config_fund: "false",
     npm_config_audit: "false",
-    OMNIROUTE_NPM_BIN: env.OMNIROUTE_NPM_BIN || getPackageManagerCommand("npm"),
-    OMNIROUTE_NPX_BIN: env.OMNIROUTE_NPX_BIN || getPackageManagerCommand("npx"),
+    OMNIROUTE_NPM_BIN: env.OMNIROUTE_NPM_BIN || "npm",
+    OMNIROUTE_NPX_BIN: env.OMNIROUTE_NPX_BIN || "npx",
     VERSION: env.VERSION || version,
   }
 }
@@ -203,6 +203,20 @@ async function patchWindowsPrepublishCommands() {
       'const NPX_BIN = process.platform === "win32" ? "npx.cmd" : "npx";',
       'const NPX_BIN = process.env.OMNIROUTE_NPX_BIN || "npx";',
     )
+    .replace(
+      'const APP_DIR = join(ROOT, "app");',
+      `const APP_DIR = join(ROOT, "app");
+
+function runCommand(command: string, args: string[], options: Parameters<typeof execFileSync>[2] = {}) {
+  if (process.platform !== "win32") {
+    return execFileSync(command, args, options);
+  }
+
+  return execFileSync(process.env.ComSpec || "C:\\\\Windows\\\\System32\\\\cmd.exe", ["/d", "/s", "/c", command, ...args], options);
+}`,
+    )
+    .replaceAll("execFileSync(NPM_BIN,", "runCommand(NPM_BIN,")
+    .replaceAll("execFileSync(NPX_BIN,", "runCommand(NPX_BIN,")
 
   if (nextScript !== script) {
     await writeFile(scriptPath, nextScript)
@@ -313,12 +327,4 @@ async function calculateSha256(filePath) {
 
 function isMainModule() {
   return process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href
-}
-
-function getPackageManagerCommand(command) {
-  if (process.platform !== "win32") {
-    return command
-  }
-
-  return path.join(path.dirname(process.execPath), `${command}.cmd`)
 }
