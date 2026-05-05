@@ -1,0 +1,127 @@
+name: Build code-server artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/code-server-artifacts.yaml"
+      - ".gitmodules"
+      - "README.md"
+      - "packages/code-server/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/code-server-artifacts.yaml"
+      - ".gitmodules"
+      - "README.md"
+      - "packages/code-server/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runner: ubuntu-22.04
+            artifact_name: code-server-linux
+            bash_path: bash
+            code_server_os: linux
+          - name: macOS
+            runner: macos-latest
+            artifact_name: code-server-macos
+            bash_path: bash
+            code_server_os: macos
+          - name: Windows
+            runner: windows-latest
+            artifact_name: code-server-windows
+            bash_path: C:\msys64\usr\bin\bash.exe
+            code_server_os: windows
+
+    env:
+      CI: true
+      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+      npm_config_build_from_source: true
+      BASH_PATH: ${{ matrix.bash_path }}
+      NPM_CONFIG_SCRIPT_SHELL: ${{ matrix.bash_path }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: packages/code-server/upstream/.node-version
+          cache: npm
+          cache-dependency-path: |
+            packages/code-server/upstream/package-lock.json
+            packages/code-server/upstream/test/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Linux prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y jq rsync quilt libkrb5-dev
+
+      - name: Install macOS prerequisites
+        if: runner.os == 'macOS'
+        run: brew install jq rsync quilt python-setuptools
+
+      - name: Setup MSYS2
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            diffutils
+            jq
+            patch
+            quilt
+            rsync
+            unzip
+            zip
+
+      - name: Set build version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=0.0.0-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build artifacts
+        run: node ./packages/code-server/scripts/build-artifacts.mjs
+
+      - name: Run native integration test
+        run: npm run test:native -- --runInBand
+        working-directory: packages/code-server/upstream
+        env:
+          OS: ${{ matrix.code_server_os }}
+
+      - name: Verify built release can start
+        run: node ./packages/code-server/scripts/verify-startup.mjs
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: artifacts/code-server/*
+          if-no-files-found: error
