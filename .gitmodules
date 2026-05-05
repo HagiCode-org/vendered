@@ -1,0 +1,3 @@
+[submodule "code-server"]
+	path = packages/code-server/upstream
+	url = https://github.com/coder/code-server.git
