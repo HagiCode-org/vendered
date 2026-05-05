@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
-import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { access, chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+
+import { PUBLICATION_SCHEMA_VERSION, buildBlobKey } from "../../../scripts/publication.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -12,6 +15,7 @@ const root = path.resolve(packageRoot, "../..")
 const codeServerRoot = path.join(packageRoot, "upstream")
 const releaseDir = path.join(codeServerRoot, process.env.RELEASE_PATH || "release")
 const artifactsDir = path.join(root, process.env.ARTIFACTS_OUTPUT_DIR || path.join("artifacts", "code-server"))
+const packageId = "code-server"
 const platform = normalizePlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
 const arch = normalizeArch(process.env.ARCH || process.arch)
 
@@ -170,22 +174,60 @@ async function collectArtifacts(version) {
     await run("tar", ["-czf", archivePath, "-C", codeServerRoot, path.basename(releaseDir)])
   }
 
-  return [path.basename(archivePath)]
+  const archiveStats = await stat(archivePath)
+
+  return [
+    {
+      kind: "archive",
+      fileName: path.basename(archivePath),
+      blobKey: buildBlobKey(
+        {
+          packageId,
+          version,
+          platform,
+          arch,
+        },
+        path.basename(archivePath),
+      ),
+      sizeBytes: archiveStats.size,
+      sha256: await calculateSha256(archivePath),
+    },
+  ]
 }
 
 async function writeMetadata(version, artifacts) {
   const revision = await readGitOutput(["rev-parse", "HEAD"], codeServerRoot)
+  const metadataFileName = "metadata.json"
   await writeFile(
-    path.join(artifactsDir, "metadata.json"),
+    path.join(artifactsDir, metadataFileName),
     JSON.stringify(
       {
+        schemaVersion: PUBLICATION_SCHEMA_VERSION,
+        packageId,
         version,
         platform,
         arch,
-        slimArtifact: true,
-        bundledNodeRuntime: false,
-        codeServerRevision: revision.trim(),
-        artifacts,
+        sourceRevision: revision.trim(),
+        extra: {
+          slimArtifact: true,
+          bundledNodeRuntime: false,
+        },
+        artifacts: [
+          ...artifacts,
+          {
+            kind: "metadata",
+            fileName: metadataFileName,
+            blobKey: buildBlobKey(
+              {
+                packageId,
+                version,
+                platform,
+                arch,
+              },
+              metadataFileName,
+            ),
+          },
+        ],
       },
       null,
       2,
@@ -327,4 +369,9 @@ function readGitOutput(args, cwd) {
 
 function escapePowerShell(value) {
   return value.replaceAll("'", "''")
+}
+
+async function calculateSha256(filePath) {
+  const contents = await readFile(filePath)
+  return createHash("sha256").update(contents).digest("hex")
 }
