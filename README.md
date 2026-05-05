@@ -4,13 +4,23 @@ This repository stores vendored build inputs and CI automation.
 
 - `packages/code-server/` contains the vendored code-server integration.
 - `packages/code-server/upstream/` is a Git submodule pointing to `https://github.com/coder/code-server.git`.
-- `.github/workflows/code-server-artifacts.yaml` builds code-server artifacts on Linux, macOS, and Windows, validates startup on each runner, uploads the outputs to GitHub Actions artifacts, and publishes successful `main` branch pushes into Azure Storage.
+- `.github/workflows/code-server-artifacts.yaml` builds code-server artifacts on Linux, macOS, and Windows, validates startup on each runner, uploads the outputs to GitHub Actions artifacts, and publishes successful `main` branch pushes into Azure Storage and a GitHub Release in parallel.
 - `packages/code-server/scripts/build-artifacts.mjs` and `packages/code-server/scripts/verify-startup.mjs` are the Node entrypoints for the build and post-build verification flow.
 
 ## Azure publication
 
-The `publish` job in `.github/workflows/code-server-artifacts.yaml` runs after the per-platform build and verification jobs succeed. It publishes automatically on `push` to `main`, and it can also be triggered manually with `workflow_dispatch` by setting `publish_to_azure=true`.
+The publication jobs in `.github/workflows/code-server-artifacts.yaml` run after the per-platform build and verification jobs succeed. They publish automatically on `push` to `main`, and they can also be triggered manually with `workflow_dispatch` by setting `publish_to_azure=true`.
 Because the SAS publication scripts only use repository files plus downloaded build artifacts, the publish job uses a standalone Node 22 runtime and does not need the `packages/code-server/upstream/` submodule checkout.
+
+## Release versioning
+
+Published builds use a UTC date-based version in `YYYY.MMDD.RRRR` form, where:
+
+- `YYYY` is the UTC year
+- `MMDD` is the UTC month and day
+- `RRRR` is the zero-padded GitHub Actions run number
+
+For example, the first qualifying workflow run on 2026-05-05 would produce `2026.0505.0001` and tag the repository as `v2026.0505.0001`.
 
 ### Required GitHub configuration
 
@@ -59,6 +69,10 @@ For `code-server`, the initial contract is:
 If required metadata is missing, or any declared artifact file does not exist, publication fails before `index.json` is updated.
 
 `scripts/publish-to-azure.mjs` and `scripts/update-version-index.mjs` both require `AZURE_STORAGE_CONTAINER_SAS_URL` in the environment. The GitHub workflow maps that from `secrets.VENDORED_AZURE_CONTAINER_SAS_URL`.
+
+## GitHub Release publication
+
+When publication is enabled, the workflow also creates or updates a repository release tagged with `v<version>` and uploads the generated `.tar.gz` and `.zip` build archives. This runs in parallel with Azure publication and uses the workflow's built-in `GITHUB_TOKEN`, so no extra secret is required beyond the Azure SAS URL.
 
 ### `index.json` semantics
 
