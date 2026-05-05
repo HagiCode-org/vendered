@@ -25,6 +25,7 @@ https://<account>.blob.core.windows.net/<container>?sp=racwdl&st=...&se=...&spr=
 ```
 
 The scripts parse the storage account, container name, and SAS token from this one URL and use it for all blob reads and writes.
+Publication uses the Azure Blob REST API directly from Node.js, so the workflow does not require Azure CLI or Azure GitHub Actions.
 
 ### Storage layout
 

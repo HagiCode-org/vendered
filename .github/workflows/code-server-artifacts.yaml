@@ -239,9 +239,6 @@ jobs:
           pattern: code-server-*
           path: downloaded
 
-      - name: Setup Azure CLI
-        uses: azure/setup-azcli@v4
-
       - name: Publish vendored artifacts to Azure Storage
         run: node ./scripts/publish-to-azure.mjs --artifacts-dir downloaded --publish-result artifacts/publish-result.json
 
