@@ -65,9 +65,13 @@ async function runBuildPipeline(version) {
     return
   }
 
+  if (platform === "windows") {
+    await applyPatchesWithGit(baseEnv)
+  }
+
   await runBash(
     [
-      getQuiltPushCommand(),
+      platform === "windows" ? ":" : getQuiltPushCommand(),
       "npm ci",
       "npm run build",
       "npm run build:vscode",
@@ -75,6 +79,22 @@ async function runBuildPipeline(version) {
     ].join(" && "),
     { cwd: codeServerRoot, env: baseEnv },
   )
+}
+
+async function applyPatchesWithGit(env) {
+  const series = await readFile(path.join(codeServerRoot, "patches", "series"), "utf8")
+  const patchFiles = series
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+
+  for (const patchFile of patchFiles) {
+    await run(
+      "git",
+      ["apply", "--whitespace=nowarn", path.join("patches", patchFile)],
+      { cwd: codeServerRoot, env },
+    )
+  }
 }
 
 async function slimRelease() {
