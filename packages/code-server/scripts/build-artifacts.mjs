@@ -89,7 +89,7 @@ async function applyPatchesWithPatch(env) {
     .filter((line) => line && !line.startsWith("#"))
 
   for (const patchFile of patchFiles) {
-    await runBash(`patch -p1 --forward -i "${toPosixPath(`patches/${patchFile}`)}"`, {
+    await runBash(`/usr/bin/patch -p1 --forward -i "${toPosixPath(`patches/${patchFile}`)}"`, {
       cwd: codeServerRoot,
       env,
     })
