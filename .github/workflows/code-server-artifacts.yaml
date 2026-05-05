@@ -231,7 +231,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version-file: packages/code-server/upstream/.node-version
+          node-version: 22
 
       - name: Download build artifacts
         uses: actions/download-artifact@v5
