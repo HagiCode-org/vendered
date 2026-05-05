@@ -217,12 +217,15 @@ function getBashCommand() {
 }
 
 function getQuiltPushCommand() {
-  return platform === "windows" ? "/usr/bin/quilt push -a" : "quilt push -a"
+  return "quilt push -a"
 }
 
 function runBash(script, options = {}) {
-  const command = process.platform === "win32" ? `source /etc/profile && ${script}` : script
-  return run(getBashCommand(), ["-lc", command], options)
+  if (process.platform === "win32") {
+    const command = `source /etc/profile && export PATH=\"/usr/bin:/bin:$PATH\" && ${script}`
+    return run(getBashCommand(), ["--login", "-lc", command], options)
+  }
+  return run(getBashCommand(), ["-lc", script], options)
 }
 
 function run(command, args, options = {}) {
