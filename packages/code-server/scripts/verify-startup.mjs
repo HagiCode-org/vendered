@@ -21,9 +21,9 @@ main().catch((error) => {
 
 async function main() {
   process.chdir(root)
-  const codeServerPath =
-    process.env.CODE_SERVER_PATH || path.join(codeServerRoot, process.env.RELEASE_PATH || "release", "bin", "code-server")
-  await access(codeServerPath)
+  const runtimeRoot = process.env.CODE_SERVER_ROOT || path.join(codeServerRoot, process.env.RELEASE_PATH || "release")
+  const entryPath = path.join(runtimeRoot, "out", "node", "entry.js")
+  await access(entryPath)
 
   const port = await getAvailablePort()
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "code-server-user-data-"))
@@ -33,8 +33,8 @@ async function main() {
   let exited = false
 
   try {
-    child = spawn(getBashCommand(), [
-      codeServerPath,
+    child = spawn(getNodeCommand(), [
+      entryPath,
       "--bind-addr",
       `127.0.0.1:${port}`,
       "--auth",
@@ -46,7 +46,7 @@ async function main() {
       "--extensions-dir",
       extensionsDir,
     ], {
-      cwd: codeServerRoot,
+      cwd: runtimeRoot,
       env: {
         ...process.env,
         PASSWORD: "",
@@ -89,11 +89,8 @@ async function main() {
   }
 }
 
-function getBashCommand() {
-  if (process.platform === "win32") {
-    return process.env.BASH_PATH || process.env.NPM_CONFIG_SCRIPT_SHELL || "C:\\msys64\\usr\\bin\\bash.exe"
-  }
-  return "bash"
+function getNodeCommand() {
+  return process.platform === "win32" ? "node.exe" : "node"
 }
 
 async function waitForHealth(port) {

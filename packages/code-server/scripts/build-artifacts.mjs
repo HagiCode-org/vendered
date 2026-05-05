@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process"
-import { access, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -11,7 +11,6 @@ const packageRoot = path.resolve(__dirname, "..")
 const root = path.resolve(packageRoot, "../..")
 const codeServerRoot = path.join(packageRoot, "upstream")
 const releaseDir = path.join(codeServerRoot, process.env.RELEASE_PATH || "release")
-const releasePackagesDir = path.join(codeServerRoot, "release-packages")
 const artifactsDir = path.join(root, process.env.ARTIFACTS_OUTPUT_DIR || path.join("artifacts", "code-server"))
 const platform = normalizePlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
 const arch = normalizeArch(process.env.ARCH || process.arch)
@@ -33,6 +32,7 @@ async function main() {
   await mkdir(artifactsDir, { recursive: true })
 
   await runBuildPipeline(version)
+  await slimRelease()
 
   const artifacts = await collectArtifacts(version)
   await writeMetadata(version, artifacts)
@@ -59,7 +59,6 @@ async function runBuildPipeline(version) {
         "npm run build",
         "npm run build:vscode",
         "KEEP_MODULES=1 npm run release",
-        "npm run package",
       ].join(" && "),
       { cwd: codeServerRoot, env: baseEnv },
     )
@@ -78,20 +77,44 @@ async function runBuildPipeline(version) {
   )
 }
 
+async function slimRelease() {
+  await access(releaseDir)
+  await rm(path.join(releaseDir, "lib", "node"), { recursive: true, force: true })
+  await rm(path.join(releaseDir, "lib", "node.exe"), { recursive: true, force: true })
+  await rm(path.join(codeServerRoot, "release-packages"), { recursive: true, force: true })
+
+  const binDir = path.join(releaseDir, "bin")
+  await mkdir(binDir, { recursive: true })
+
+  await writeFile(
+    path.join(binDir, "code-server"),
+    `#!/usr/bin/env sh
+set -eu
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(dirname "$SCRIPT_DIR")
+exec node "$ROOT_DIR/out/node/entry.js" "$@"
+`,
+  )
+  await chmod(path.join(binDir, "code-server"), 0o755)
+
+  await writeFile(
+    path.join(binDir, "code-server.cmd"),
+    `@echo off
+setlocal
+set ROOT_DIR=%~dp0..
+node "%ROOT_DIR%\\out\\node\\entry.js" %*
+`,
+  )
+
+  await writeFile(
+    path.join(binDir, "code-server.ps1"),
+    `$RootDir = Split-Path -Parent $PSScriptRoot
+node "$RootDir\\out\\node\\entry.js" @args
+`,
+  )
+}
+
 async function collectArtifacts(version) {
-  const copiedArtifacts = []
-  const packagedFiles = await safeReadDir(releasePackagesDir)
-
-  if (packagedFiles.length > 0) {
-    for (const file of packagedFiles) {
-      const source = path.join(releasePackagesDir, file)
-      const target = path.join(artifactsDir, file)
-      await cp(source, target)
-      copiedArtifacts.push(path.basename(target))
-    }
-    return copiedArtifacts
-  }
-
   const archiveBaseName = `code-server-${version}-${platform}-${arch}`
   const archivePath =
     platform === "windows"
@@ -109,8 +132,7 @@ async function collectArtifacts(version) {
     await run("tar", ["-czf", archivePath, "-C", codeServerRoot, path.basename(releaseDir)])
   }
 
-  copiedArtifacts.push(path.basename(archivePath))
-  return copiedArtifacts
+  return [path.basename(archivePath)]
 }
 
 async function writeMetadata(version, artifacts) {
@@ -122,6 +144,8 @@ async function writeMetadata(version, artifacts) {
         version,
         platform,
         arch,
+        slimArtifact: true,
+        bundledNodeRuntime: false,
         codeServerRevision: revision.trim(),
         artifacts,
       },
@@ -138,25 +162,6 @@ async function resolveVersion() {
 
   const packageJson = JSON.parse(await readFile(path.join(codeServerRoot, "package.json"), "utf8"))
   return packageJson.version
-}
-
-async function safeReadDir(dirPath) {
-  try {
-    await access(dirPath)
-  } catch {
-    return []
-  }
-
-  const entries = await readdir(dirPath)
-  const files = []
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry)
-    const entryStat = await stat(fullPath)
-    if (entryStat.isFile()) {
-      files.push(entry)
-    }
-  }
-  return files
 }
 
 function withCodeServerEnv(env) {

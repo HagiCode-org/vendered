@@ -36,17 +36,14 @@ jobs:
             runner: ubuntu-22.04
             artifact_name: code-server-linux
             bash_path: bash
-            code_server_os: linux
           - name: macOS
             runner: macos-latest
             artifact_name: code-server-macos
             bash_path: bash
-            code_server_os: macos
           - name: Windows
             runner: windows-latest
             artifact_name: code-server-windows
             bash_path: C:\msys64\usr\bin\bash.exe
-            code_server_os: windows
 
     env:
       CI: true
@@ -80,14 +77,6 @@ jobs:
       - name: Install Linux prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y jq rsync quilt libkrb5-dev
-
-      - name: Install Linux nfpm
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          mkdir -p ~/.local/bin
-          curl -sSfL https://github.com/goreleaser/nfpm/releases/download/v2.43.2/nfpm_2.43.2_$(uname -s)_$(uname -m).tar.gz | tar -C ~/.local/bin -xzf - nfpm
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install macOS prerequisites
         if: runner.os == 'macOS'
@@ -164,16 +153,6 @@ jobs:
         with:
           node-version-file: packages/code-server/upstream/.node-version
 
-      - name: Setup MSYS2
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MSYS
-          path-type: inherit
-          update: true
-          install: >-
-            unzip
-
       - name: Download artifacts
         uses: actions/download-artifact@v5
         with:
@@ -195,7 +174,7 @@ jobs:
           esac
           RELEASE_DIR="$(find extracted/code-server -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           test -n "$RELEASE_DIR"
-          echo "CODE_SERVER_PATH=$RELEASE_DIR/bin/code-server" >> "$GITHUB_ENV"
+          echo "CODE_SERVER_ROOT=$RELEASE_DIR" >> "$GITHUB_ENV"
 
       - name: Extract downloaded artifact
         if: runner.os == 'Windows'
@@ -211,7 +190,7 @@ jobs:
           }
           $releaseDir = Get-ChildItem extracted/code-server -Directory | Select-Object -First 1
           if (-not $releaseDir) { throw 'No extracted release directory found' }
-          Add-Content -Path $env:GITHUB_ENV -Value ("CODE_SERVER_PATH={0}\\bin\\code-server" -f $releaseDir.FullName)
+          Add-Content -Path $env:GITHUB_ENV -Value ("CODE_SERVER_ROOT={0}" -f $releaseDir.FullName)
 
       - name: Verify downloaded release can start
         run: node ./packages/code-server/scripts/verify-startup.mjs
