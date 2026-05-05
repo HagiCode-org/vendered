@@ -222,8 +222,6 @@ jobs:
     concurrency:
       group: vendered-azure-publication
       cancel-in-progress: false
-    env:
-      AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -239,8 +237,22 @@ jobs:
           pattern: code-server-*
           path: downloaded
 
+      - name: Validate Azure SAS secret
+        shell: bash
+        env:
+          AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
+        run: |
+          if [[ -z "${AZURE_STORAGE_CONTAINER_SAS_URL}" ]]; then
+            echo "Missing GitHub secret: VENDORED_AZURE_CONTAINER_SAS_URL" >&2
+            exit 1
+          fi
+
       - name: Publish vendored artifacts to Azure Storage
+        env:
+          AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
         run: node ./scripts/publish-to-azure.mjs --artifacts-dir downloaded --publish-result artifacts/publish-result.json
 
       - name: Update version index
+        env:
+          AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
         run: node ./scripts/update-version-index.mjs --publish-result artifacts/publish-result.json
