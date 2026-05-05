@@ -185,8 +185,8 @@ function withBuildEnv(env, version) {
     CI: "true",
     npm_config_fund: "false",
     npm_config_audit: "false",
-    OMNIROUTE_NPM_BIN: env.OMNIROUTE_NPM_BIN || "npm",
-    OMNIROUTE_NPX_BIN: env.OMNIROUTE_NPX_BIN || "npx",
+    OMNIROUTE_NPM_BIN: env.OMNIROUTE_NPM_BIN || getPackageManagerCommand("npm"),
+    OMNIROUTE_NPX_BIN: env.OMNIROUTE_NPX_BIN || getPackageManagerCommand("npx"),
     VERSION: env.VERSION || version,
   }
 }
@@ -313,4 +313,12 @@ async function calculateSha256(filePath) {
 
 function isMainModule() {
   return process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href
+}
+
+function getPackageManagerCommand(command) {
+  if (process.platform !== "win32") {
+    return command
+  }
+
+  return path.join(path.dirname(process.execPath), `${command}.cmd`)
 }
