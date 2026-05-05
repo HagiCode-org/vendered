@@ -39,6 +39,10 @@ async function main() {
   await mkdir(artifactsDir, { recursive: true })
   await mkdir(releaseWorkspace, { recursive: true })
 
+  if (platform === "windows") {
+    await patchWindowsPrepublishCommands()
+  }
+
   await run("npm", ["ci", "--no-audit", "--no-fund"], {
     cwd: upstreamRoot,
     env: withBuildEnv(process.env, version),
@@ -181,7 +185,27 @@ function withBuildEnv(env, version) {
     CI: "true",
     npm_config_fund: "false",
     npm_config_audit: "false",
+    OMNIROUTE_NPM_BIN: env.OMNIROUTE_NPM_BIN || "npm",
+    OMNIROUTE_NPX_BIN: env.OMNIROUTE_NPX_BIN || "npx",
     VERSION: env.VERSION || version,
+  }
+}
+
+async function patchWindowsPrepublishCommands() {
+  const scriptPath = path.join(upstreamRoot, "scripts", "prepublish.ts")
+  const script = await readFile(scriptPath, "utf8")
+  const nextScript = script
+    .replace(
+      'const NPM_BIN = process.platform === "win32" ? "npm.cmd" : "npm";',
+      'const NPM_BIN = process.env.OMNIROUTE_NPM_BIN || "npm";',
+    )
+    .replace(
+      'const NPX_BIN = process.platform === "win32" ? "npx.cmd" : "npx";',
+      'const NPX_BIN = process.env.OMNIROUTE_NPX_BIN || "npx";',
+    )
+
+  if (nextScript !== script) {
+    await writeFile(scriptPath, nextScript)
   }
 }
 
