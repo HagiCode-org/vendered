@@ -66,7 +66,7 @@ async function runBuildPipeline(version) {
   }
 
   if (platform === "windows") {
-    await applyPatchesWithGit(baseEnv)
+    await applyPatchesWithPatch(baseEnv)
   }
 
   await runBash(
@@ -81,7 +81,7 @@ async function runBuildPipeline(version) {
   )
 }
 
-async function applyPatchesWithGit(env) {
+async function applyPatchesWithPatch(env) {
   const series = await readFile(path.join(codeServerRoot, "patches", "series"), "utf8")
   const patchFiles = series
     .split(/\r?\n/)
@@ -89,11 +89,10 @@ async function applyPatchesWithGit(env) {
     .filter((line) => line && !line.startsWith("#"))
 
   for (const patchFile of patchFiles) {
-    await run(
-      "git",
-      ["apply", "--whitespace=nowarn", path.join("patches", patchFile)],
-      { cwd: codeServerRoot, env },
-    )
+    await runBash(`patch -p1 --forward -i "${toPosixPath(`patches/${patchFile}`)}"`, {
+      cwd: codeServerRoot,
+      env,
+    })
   }
 }
 
@@ -220,6 +219,10 @@ function normalizeArch(value) {
     default:
       return value
   }
+}
+
+function toPosixPath(value) {
+  return value.replaceAll("\\", "/")
 }
 
 function getCommand(command) {
