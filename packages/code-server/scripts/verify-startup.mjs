@@ -21,7 +21,9 @@ main().catch((error) => {
 
 async function main() {
   process.chdir(root)
-  const runtimeRoot = process.env.CODE_SERVER_ROOT || path.join(codeServerRoot, process.env.RELEASE_PATH || "release")
+  const runtimeRoot = process.env.CODE_SERVER_ROOT
+    ? path.resolve(root, process.env.CODE_SERVER_ROOT)
+    : path.join(codeServerRoot, process.env.RELEASE_PATH || "release")
   const entryPath = path.join(runtimeRoot, "out", "node", "entry.js")
   await access(entryPath)
 
