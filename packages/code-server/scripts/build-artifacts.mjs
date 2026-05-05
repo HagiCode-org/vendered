@@ -234,7 +234,7 @@ function getCommand(command) {
 
 function getBashCommand() {
   if (process.platform === "win32") {
-    return "C:\\Windows\\System32\\cmd.exe"
+    return process.env.BASH_PATH || "C:\\msys64\\usr\\bin\\bash.exe"
   }
   return "bash"
 }
@@ -245,23 +245,7 @@ function getQuiltPushCommand() {
 
 function runBash(script, options = {}) {
   if (process.platform === "win32") {
-    return run(
-      getBashCommand(),
-      [
-        "/d",
-        "/s",
-        "/c",
-        "C:\\msys64\\msys2_shell.cmd",
-        "-defterm",
-        "-no-start",
-        "-msys",
-        "-shell",
-        "bash",
-        "-lc",
-        script,
-      ],
-      options,
-    )
+    return run(getBashCommand(), ["-lc", `export PATH="/usr/bin:/mingw64/bin:$PATH" && ${script}`], options)
   }
   return run(getBashCommand(), ["-lc", script], options)
 }
