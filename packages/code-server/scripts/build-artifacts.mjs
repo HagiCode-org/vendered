@@ -89,7 +89,7 @@ async function applyPatchesWithPatch(env) {
     .filter((line) => line && !line.startsWith("#"))
 
   for (const patchFile of patchFiles) {
-    await runBash(`/usr/bin/patch -p1 --forward -i "${toPosixPath(`patches/${patchFile}`)}"`, {
+    await runMsys2(`patch -p1 --forward -i "${toPosixPath(`patches/${patchFile}`)}"`, {
       cwd: codeServerRoot,
       env,
     })
@@ -185,7 +185,7 @@ async function resolveVersion() {
 
 function withCodeServerEnv(env) {
   const scriptShell =
-    env.NPM_CONFIG_SCRIPT_SHELL || env.npm_config_script_shell || env.BASH_PATH || "C:\\msys64\\usr\\bin\\bash.exe"
+    env.NPM_CONFIG_SCRIPT_SHELL || env.npm_config_script_shell || env.BASH_PATH || "bash"
 
   return {
     ...env,
@@ -234,9 +234,13 @@ function getCommand(command) {
 
 function getBashCommand() {
   if (process.platform === "win32") {
-    return process.env.BASH_PATH || "C:\\msys64\\usr\\bin\\bash.exe"
+    return process.env.BASH_PATH || "bash"
   }
   return "bash"
+}
+
+function getMsys2Command() {
+  return process.env.MSYS2_CMD || path.join(process.env.RUNNER_TEMP || "C:\\Users\\runneradmin\\AppData\\Local\\Temp", "setup-msys2", "msys2.cmd")
 }
 
 function getQuiltPushCommand() {
@@ -245,9 +249,21 @@ function getQuiltPushCommand() {
 
 function runBash(script, options = {}) {
   if (process.platform === "win32") {
-    return run(getBashCommand(), ["-lc", `export PATH="/usr/bin:/mingw64/bin:$PATH" && ${script}`], options)
+    return run(getBashCommand(), ["-lc", script], options)
   }
   return run(getBashCommand(), ["-lc", script], options)
+}
+
+function runMsys2(script, options = {}) {
+  if (process.platform !== "win32") {
+    return runBash(script, options)
+  }
+
+  return run(
+    "C:\\Windows\\System32\\cmd.exe",
+    ["/d", "/s", "/c", getMsys2Command(), "-c", script],
+    options,
+  )
 }
 
 function run(command, args, options = {}) {

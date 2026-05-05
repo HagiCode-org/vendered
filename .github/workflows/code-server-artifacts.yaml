@@ -39,7 +39,7 @@ jobs:
           - name: Windows
             runner: windows-latest
             artifact_name: code-server-windows
-            bash_path: C:\msys64\usr\bin\bash.exe
+            bash_path: C:\Program Files\Git\bin\bash.exe
 
     env:
       CI: true
@@ -93,6 +93,14 @@ jobs:
             rsync
             unzip
             zip
+
+      - name: Configure Windows shell paths
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_ENV -Value 'BASH_PATH=C:\Program Files\Git\bin\bash.exe'
+          Add-Content -Path $env:GITHUB_ENV -Value 'NPM_CONFIG_SCRIPT_SHELL=C:\Program Files\Git\bin\bash.exe'
+          Add-Content -Path $env:GITHUB_ENV -Value ("MSYS2_CMD={0}\\setup-msys2\\msys2.cmd" -f $env:RUNNER_TEMP)
 
       - name: Set build version
         shell: bash
