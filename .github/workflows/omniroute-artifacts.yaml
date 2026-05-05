@@ -66,7 +66,7 @@ jobs:
             platform: linux
             arch: amd64
           - name: macOS x64
-            runner: macos-13
+            runner: macos-15-intel
             artifact_name: omniroute-macos-amd64
             platform: macos
             arch: amd64
@@ -122,7 +122,7 @@ jobs:
             runner: ubuntu-22.04
             artifact_name: omniroute-linux-amd64
           - name: macOS x64
-            runner: macos-13
+            runner: macos-15-intel
             artifact_name: omniroute-macos-amd64
           - name: macOS arm64
             runner: macos-14
