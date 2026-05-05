@@ -10,6 +10,7 @@ This repository stores vendored build inputs and CI automation.
 ## Azure publication
 
 The `publish` job in `.github/workflows/code-server-artifacts.yaml` runs after the per-platform build and verification jobs succeed. It publishes automatically on `push` to `main`, and it can also be triggered manually with `workflow_dispatch` by setting `publish_to_azure=true`.
+Because the SAS publication scripts only use repository files plus downloaded build artifacts, the publish job uses a standalone Node 22 runtime and does not need the `packages/code-server/upstream/` submodule checkout.
 
 ### Required GitHub configuration
 
