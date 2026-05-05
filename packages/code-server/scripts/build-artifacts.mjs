@@ -185,7 +185,7 @@ async function resolveVersion() {
 
 function withCodeServerEnv(env) {
   const scriptShell =
-    env.NPM_CONFIG_SCRIPT_SHELL || env.npm_config_script_shell || env.BASH_PATH || "bash"
+    env.NPM_CONFIG_SCRIPT_SHELL || env.npm_config_script_shell || (platform === "windows" ? "/usr/bin/bash" : env.BASH_PATH || "bash")
 
   return {
     ...env,
@@ -233,9 +233,6 @@ function getCommand(command) {
 }
 
 function getBashCommand() {
-  if (process.platform === "win32") {
-    return process.env.BASH_PATH || "bash"
-  }
   return "bash"
 }
 
@@ -249,7 +246,7 @@ function getQuiltPushCommand() {
 
 function runBash(script, options = {}) {
   if (process.platform === "win32") {
-    return run(getBashCommand(), ["-lc", script], options)
+    return runMsys2(script, options)
   }
   return run(getBashCommand(), ["-lc", script], options)
 }
