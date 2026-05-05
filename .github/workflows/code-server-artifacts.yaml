@@ -2,11 +2,20 @@ name: Build code-server artifacts
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_to_azure:
+        description: Publish built artifacts to Azure Storage after all builds succeed
+        required: false
+        type: boolean
+        default: false
   push:
+    branches:
+      - main
     paths:
       - ".github/workflows/code-server-artifacts.yaml"
       - ".gitmodules"
       - "README.md"
+      - "scripts/**"
       - "packages/code-server/**"
   pull_request:
     branches:
@@ -15,6 +24,7 @@ on:
       - ".github/workflows/code-server-artifacts.yaml"
       - ".gitmodules"
       - "README.md"
+      - "scripts/**"
       - "packages/code-server/**"
 
 permissions:
@@ -197,3 +207,43 @@ jobs:
 
       - name: Verify downloaded release can start
         run: node ./packages/code-server/scripts/verify-startup.mjs
+
+  publish:
+    name: publish-azure
+    needs:
+      - build
+      - verify
+    if: >-
+      ${{
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_azure == 'true')
+      }}
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: vendered-azure-publication
+      cancel-in-progress: false
+    env:
+      AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: packages/code-server/upstream/.node-version
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: code-server-*
+          path: downloaded
+
+      - name: Setup Azure CLI
+        uses: azure/setup-azcli@v4
+
+      - name: Publish vendored artifacts to Azure Storage
+        run: node ./scripts/publish-to-azure.mjs --artifacts-dir downloaded --publish-result artifacts/publish-result.json
+
+      - name: Update version index
+        run: node ./scripts/update-version-index.mjs --publish-result artifacts/publish-result.json
