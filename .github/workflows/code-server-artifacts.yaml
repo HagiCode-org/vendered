@@ -50,6 +50,7 @@ jobs:
 
     env:
       CI: true
+      GITHUB_TOKEN: ${{ github.token }}
       ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
       npm_config_build_from_source: true
@@ -72,13 +73,21 @@ jobs:
             packages/code-server/upstream/test/package-lock.json
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Install Linux prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y jq rsync quilt libkrb5-dev
+
+      - name: Install Linux nfpm
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p ~/.local/bin
+          curl -sSfL https://github.com/goreleaser/nfpm/releases/download/v2.43.2/nfpm_2.43.2_$(uname -s)_$(uname -m).tar.gz | tar -C ~/.local/bin -xzf - nfpm
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install macOS prerequisites
         if: runner.os == 'macOS'

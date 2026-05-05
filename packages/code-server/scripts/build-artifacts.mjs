@@ -46,28 +46,36 @@ async function runBuildPipeline(version) {
   })
 
   if (platform === "linux") {
-    await run("npm", ["ci"], { cwd: path.join(codeServerRoot, "lib/vscode/build"), env: baseEnv })
-    await runBash("cd lib/vscode && source ./build/azure-pipelines/linux/setup-env.sh && node build/npm/preinstall.ts", {
-      cwd: codeServerRoot,
-      env: baseEnv,
-    })
+    await runBash(
+      [
+        "quilt push -a",
+        "cd lib/vscode/build",
+        "npm ci",
+        "cd ..",
+        "source ./build/azure-pipelines/linux/setup-env.sh",
+        "node build/npm/preinstall.ts",
+        "cd ../..",
+        "npm ci",
+        "npm run build",
+        "npm run build:vscode",
+        "KEEP_MODULES=1 npm run release",
+        "npm run package",
+      ].join(" && "),
+      { cwd: codeServerRoot, env: baseEnv },
+    )
+    return
   }
 
-  await runBash("quilt push -a", { cwd: codeServerRoot, env: baseEnv })
-  await run("npm", ["ci"], { cwd: codeServerRoot, env: baseEnv })
-  await run("npm", ["run", "build"], { cwd: codeServerRoot, env: baseEnv })
-  await run("npm", ["run", "build:vscode"], { cwd: codeServerRoot, env: baseEnv })
-  await run("npm", ["run", "release"], {
-    cwd: codeServerRoot,
-    env: {
-      ...baseEnv,
-      KEEP_MODULES: "1",
-    },
-  })
-
-  if (platform === "linux") {
-    await run("npm", ["run", "package"], { cwd: codeServerRoot, env: baseEnv })
-  }
+  await runBash(
+    [
+      "quilt push -a",
+      "npm ci",
+      "npm run build",
+      "npm run build:vscode",
+      "KEEP_MODULES=1 npm run release",
+    ].join(" && "),
+    { cwd: codeServerRoot, env: baseEnv },
+  )
 }
 
 async function collectArtifacts(version) {
@@ -204,7 +212,8 @@ function getBashCommand() {
 }
 
 function runBash(script, options = {}) {
-  return run(getBashCommand(), ["-lc", script], options)
+  const command = process.platform === "win32" ? `source /etc/profile && ${script}` : script
+  return run(getBashCommand(), ["-lc", command], options)
 }
 
 function run(command, args, options = {}) {
