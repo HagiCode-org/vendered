@@ -31,8 +31,28 @@ permissions:
   contents: read
 
 jobs:
+  prepare_release:
+    name: prepare-release
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Resolve release version
+        id: version
+        run: node ./scripts/versioning.mjs >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.name }}
+    needs: prepare_release
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -59,6 +79,7 @@ jobs:
       npm_config_build_from_source: true
       BASH_PATH: ${{ matrix.bash_path }}
       NPM_CONFIG_SCRIPT_SHELL: ${{ matrix.bash_path }}
+      VERSION: ${{ needs.prepare_release.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -110,15 +131,6 @@ jobs:
         run: |
           Add-Content -Path $env:GITHUB_ENV -Value 'NPM_CONFIG_SCRIPT_SHELL=/usr/bin/bash'
           Add-Content -Path $env:GITHUB_ENV -Value ("MSYS2_CMD={0}\\setup-msys2\\msys2.cmd" -f $env:RUNNER_TEMP)
-
-      - name: Set build version
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == v* ]]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-          else
-            echo "VERSION=0.0.0-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
-          fi
 
       - name: Build artifacts
         run: node ./packages/code-server/scripts/build-artifacts.mjs
@@ -208,9 +220,10 @@ jobs:
       - name: Verify downloaded release can start
         run: node ./packages/code-server/scripts/verify-startup.mjs
 
-  publish:
+  publish_azure:
     name: publish-azure
     needs:
+      - prepare_release
       - build
       - verify
     if: >-
@@ -256,3 +269,45 @@ jobs:
         env:
           AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
         run: node ./scripts/update-version-index.mjs --publish-result artifacts/publish-result.json
+
+  publish_github_release:
+    name: publish-github-release
+    needs:
+      - prepare_release
+      - build
+      - verify
+    if: >-
+      ${{
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_azure == 'true')
+      }}
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: ${{ format('vendered-github-release-{0}', needs.prepare_release.outputs.tag) }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: code-server-*
+          path: downloaded
+
+      - name: Create GitHub release and upload build archives
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          node ./scripts/github-release.mjs
+          --artifacts-dir downloaded
+          --tag "${{ needs.prepare_release.outputs.tag }}"
+          --name "${{ needs.prepare_release.outputs.version }}"
+          --target-commitish "${{ github.sha }}"
