@@ -149,3 +149,62 @@ test("publishGitHubRelease replaces existing assets on rerun", async () => {
     await rm(tempDirectory, { recursive: true, force: true })
   }
 })
+
+test("publishGitHubRelease preserves unrelated existing assets on shared vendored tags", async () => {
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "vendored-release-shared-"))
+
+  try {
+    await writeFile(path.join(tempDirectory, "omniroute-2026.0505.0001-linux-amd64.tar.gz"), "linux")
+
+    const requests = []
+    const fetchImpl = async (url, options) => {
+      requests.push({ url, options })
+
+      if (String(url).includes("/releases/tags/")) {
+        return Response.json({
+          url: "https://api.github.com/repos/newbe36524/vendered/releases/1",
+          upload_url: "https://uploads.github.com/repos/newbe36524/vendered/releases/1/assets{?name,label}",
+          assets: [
+            {
+              name: "code-server-2026.0505.0001-linux-amd64.tar.gz",
+              url: "https://api.github.com/repos/newbe36524/vendered/releases/assets/10",
+            },
+          ],
+        })
+      }
+
+      if (String(url).endsWith("/releases/1")) {
+        return Response.json({
+          url: "https://api.github.com/repos/newbe36524/vendered/releases/1",
+          upload_url: "https://uploads.github.com/repos/newbe36524/vendered/releases/1/assets{?name,label}",
+          assets: [
+            {
+              name: "code-server-2026.0505.0001-linux-amd64.tar.gz",
+              url: "https://api.github.com/repos/newbe36524/vendered/releases/assets/10",
+            },
+          ],
+        })
+      }
+
+      if (String(url).startsWith("https://uploads.github.com/")) {
+        return Response.json({ ok: true })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }
+
+    await publishGitHubRelease({
+      artifactsDir: tempDirectory,
+      repository: "newbe36524/vendered",
+      token: "test-token",
+      tagName: "v2026.0505.0001",
+      releaseName: "2026.0505.0001",
+      targetCommitish: "abc123",
+      fetchImpl,
+    })
+
+    assert.deepEqual(requests.map((request) => request.options.method), ["GET", "PATCH", "POST"])
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true })
+  }
+})

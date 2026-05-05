@@ -304,6 +304,80 @@ test("mergeVersionIndex replaces repeated publish entries without duplicating ve
   assert.equal(mergedIndex.packages["code-server"].versions["1.2.2"].sourceRevision, "olderrev")
 })
 
+test("mergeVersionIndex adds OmniRoute entries without clobbering code-server versions", () => {
+  const currentIndex = createEmptyVersionIndex("2026-05-04T00:00:00.000Z")
+  currentIndex.packages["code-server"] = {
+    packageId: "code-server",
+    versions: {
+      "1.2.3": {
+        packageId: "code-server",
+        version: "1.2.3",
+        publishedAt: "2026-05-04T00:00:00.000Z",
+        sourceRevision: "coderev",
+        extra: { slimArtifact: true },
+        artifacts: [
+          {
+            kind: "archive",
+            fileName: "code-server-1.2.3-linux-amd64.tar.gz",
+            blobKey: buildBlobKey(
+              {
+                packageId: "code-server",
+                version: "1.2.3",
+                platform: "linux",
+                arch: "amd64",
+              },
+              "code-server-1.2.3-linux-amd64.tar.gz",
+            ),
+            platform: "linux",
+            arch: "amd64",
+          },
+        ],
+      },
+    },
+  }
+
+  const publishResult = {
+    schemaVersion: 1,
+    generatedAt: "2026-05-05T00:00:00.000Z",
+    entries: [
+      {
+        packageId: "omniroute",
+        version: "2026.0505.0001",
+        publishedAt: "2026-05-05T00:00:00.000Z",
+        sourceRevision: "omnirev",
+        extra: {
+          standaloneBundle: true,
+          packagedEntrypoint: "bin/omniroute.mjs",
+        },
+        artifacts: [
+          {
+            kind: "archive",
+            fileName: "omniroute-2026.0505.0001-linux-amd64.tar.gz",
+            blobKey: buildBlobKey(
+              {
+                packageId: "omniroute",
+                version: "2026.0505.0001",
+                platform: "linux",
+                arch: "amd64",
+              },
+              "omniroute-2026.0505.0001-linux-amd64.tar.gz",
+            ),
+            platform: "linux",
+            arch: "amd64",
+          },
+        ],
+      },
+    ],
+  }
+
+  const mergedIndex = mergeVersionIndex(currentIndex, publishResult, {
+    generatedAt: "2026-05-05T00:00:00.000Z",
+  })
+
+  assert.equal(mergedIndex.packages["code-server"].versions["1.2.3"].sourceRevision, "coderev")
+  assert.equal(mergedIndex.packages["omniroute"].versions["2026.0505.0001"].sourceRevision, "omnirev")
+})
+
 test("loadPublishInputs fails when metadata is incomplete", async () => {
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "vendored-publication-test-"))
 

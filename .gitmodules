@@ -1,3 +1,6 @@
 [submodule "code-server"]
 	path = packages/code-server/upstream
 	url = https://github.com/coder/code-server.git
+[submodule "packages/omniroute/upstream"]
+	path = packages/omniroute/upstream
+	url = https://github.com/diegosouzapw/OmniRoute.git
