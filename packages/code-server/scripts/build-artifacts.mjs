@@ -67,6 +67,7 @@ async function runBuildPipeline(version) {
 
   if (platform === "windows") {
     await applyPatchesWithPatch(baseEnv)
+    await patchWindowsBuildVscodeScript()
   }
 
   await runBash(
@@ -94,6 +95,23 @@ async function applyPatchesWithPatch(env) {
       env,
     })
   }
+}
+
+async function patchWindowsBuildVscodeScript() {
+  const scriptPath = path.join(codeServerRoot, "ci", "build", "build-vscode.sh")
+  const script = await readFile(scriptPath, "utf8")
+  const needle = '  local script="lib/vscode-reh-web-$VSCODE_TARGET/bin/$1"\n'
+  const guard = '  [ -f "$script" ] || return 0\n'
+
+  if (script.includes(guard)) {
+    return
+  }
+
+  if (!script.includes(needle)) {
+    throw new Error(`Unable to patch ${scriptPath}: expected fix-bin-script block not found`)
+  }
+
+  await writeFile(scriptPath, script.replace(needle, `${needle}${guard}`))
 }
 
 async function slimRelease() {
