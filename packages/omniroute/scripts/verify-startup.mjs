@@ -6,6 +6,8 @@ import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions, normalizeTargetPlatform, resolveReleasePath } from "./wrappers.mjs"
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const packageRoot = path.resolve(__dirname, "..")
@@ -43,27 +45,40 @@ async function main() {
   try {
     await extractArchive(archivePath, tempDirectory)
     const releaseRoot = await findReleaseRoot(tempDirectory)
+    const manifest = JSON.parse(await readFile(resolveReleasePath(releaseRoot, "package.json"), "utf8"))
+    const binEntries = getManifestBinEntries(manifest)
+    const targetPlatform = normalizeTargetPlatform(metadata.platform)
+    const runtimeEnv = {
+      ...process.env,
+      HOME: path.join(tempDirectory, "home"),
+      USERPROFILE: path.join(tempDirectory, "home"),
+      APPDATA: path.join(tempDirectory, "appdata"),
+      DATA_DIR: path.join(tempDirectory, "data"),
+      OMNIROUTE_MEMORY_MB: "256",
+    }
+
     await access(path.join(releaseRoot, "app", "server.js"))
-    await access(path.join(releaseRoot, "bin", "omniroute.mjs"))
+    await assertPackagedEntrypoints(releaseRoot, binEntries)
+    await assertWrapperFiles(releaseRoot, binEntries, targetPlatform)
 
     const version = await runAndCapture(
       process.execPath,
-      [path.join("bin", "omniroute.mjs"), "--version"],
+      [getPackagedEntrypoint(metadata), "--version"],
       {
         cwd: releaseRoot,
-        env: {
-          ...process.env,
-          HOME: path.join(tempDirectory, "home"),
-          USERPROFILE: path.join(tempDirectory, "home"),
-          APPDATA: path.join(tempDirectory, "appdata"),
-          DATA_DIR: path.join(tempDirectory, "data"),
-          OMNIROUTE_MEMORY_MB: "256",
-        },
+        env: runtimeEnv,
       },
     )
 
     if (version.trim() !== metadata.version) {
       throw new Error(`Packaged OmniRoute version mismatch: expected ${metadata.version}, received ${version.trim()}`)
+    }
+
+    const nativeWrapperVersion = await runNativeWrapperVersion(releaseRoot, binEntries, targetPlatform, runtimeEnv)
+    if (nativeWrapperVersion.trim() !== metadata.version) {
+      throw new Error(
+        `Native wrapper version mismatch: expected ${metadata.version}, received ${nativeWrapperVersion.trim()}`,
+      )
     }
 
     console.log(`Verified OmniRoute package ${metadata.version}`)
@@ -105,6 +120,47 @@ async function findReleaseRoot(rootDir) {
   }
 
   throw new Error(`Unable to find extracted OmniRoute release root in ${rootDir}`)
+}
+
+async function assertPackagedEntrypoints(releaseRoot, binEntries) {
+  for (const binEntry of binEntries) {
+    await access(resolveReleasePath(releaseRoot, binEntry.entryPath))
+  }
+}
+
+async function assertWrapperFiles(releaseRoot, binEntries, targetPlatform) {
+  const wrapperDefinitions = getWrapperDefinitions(binEntries, targetPlatform)
+  for (const wrapperDefinition of wrapperDefinitions) {
+    await access(resolveReleasePath(releaseRoot, wrapperDefinition.fileName))
+  }
+}
+
+async function runNativeWrapperVersion(releaseRoot, binEntries, targetPlatform, env) {
+  const wrapperFile = getNativeSmokeWrapperFile(binEntries, targetPlatform)
+  const wrapperPath = resolveReleasePath(releaseRoot, wrapperFile)
+
+  if (targetPlatform === "windows") {
+    return runAndCapture(
+      "powershell.exe",
+      ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapperPath, "--version"],
+      {
+        cwd: releaseRoot,
+        env,
+      },
+    )
+  }
+
+  return runAndCapture(wrapperPath, ["--version"], {
+    cwd: releaseRoot,
+    env,
+  })
+}
+
+function getPackagedEntrypoint(metadata) {
+  const packagedEntrypoint = metadata?.extra?.packagedEntrypoint
+  return typeof packagedEntrypoint === "string" && packagedEntrypoint.length > 0
+    ? packagedEntrypoint
+    : path.join("bin", "omniroute.mjs")
 }
 
 async function findFile(rootDir, predicate) {
