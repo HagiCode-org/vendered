@@ -2,11 +2,12 @@
 
 import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
-import { access, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { access, chmod, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { PUBLICATION_SCHEMA_VERSION, buildBlobKey } from "../../../scripts/publication.mjs"
+import { getManifestBinEntries, getWrapperDefinitions, normalizeTargetPlatform, renderWrapperContent, resolveReleasePath } from "./wrappers.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -17,7 +18,7 @@ const artifactsDir = path.join(root, process.env.ARTIFACTS_OUTPUT_DIR || path.jo
 const releaseWorkspace = path.join(root, "release", "omniroute")
 const windowsHomeRoot = path.join(root, ".tmp", "omniroute-windows-home")
 const packageId = "omniroute"
-const platform = normalizePlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
+const platform = normalizeTargetPlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
 const arch = normalizeArch(process.env.ARCH || process.arch)
 
 if (isMainModule()) {
@@ -69,6 +70,7 @@ async function stageReleaseTree(version) {
   await mkdir(releaseRoot, { recursive: true })
 
   const manifest = JSON.parse(await readFile(path.join(upstreamRoot, "package.json"), "utf8"))
+  const binEntries = getManifestBinEntries(manifest)
   const publishPaths = new Set([...(Array.isArray(manifest.files) ? manifest.files : []), "package.json", "package-lock.json", ".node-version"])
 
   for (const relativePath of [...publishPaths].sort()) {
@@ -91,7 +93,8 @@ async function stageReleaseTree(version) {
   await writeFile(stagedManifestPath, `${JSON.stringify(stagedManifest, null, 2)}\n`)
 
   await access(path.join(releaseRoot, "app", "server.js"))
-  await access(path.join(releaseRoot, "bin", "omniroute.mjs"))
+  await assertPackagedEntrypoints(releaseRoot, binEntries)
+  await writePlatformWrappers(releaseRoot, binEntries, platform)
 
   return releaseRoot
 }
@@ -206,6 +209,25 @@ function withBuildEnv(env, version) {
   }
 }
 
+async function assertPackagedEntrypoints(releaseRoot, binEntries) {
+  for (const binEntry of binEntries) {
+    await access(resolveReleasePath(releaseRoot, binEntry.entryPath))
+  }
+}
+
+export async function writePlatformWrappers(releaseRoot, binEntries, targetPlatform) {
+  const wrapperDefinitions = getWrapperDefinitions(binEntries, targetPlatform)
+
+  for (const wrapperDefinition of wrapperDefinitions) {
+    const wrapperPath = resolveReleasePath(releaseRoot, wrapperDefinition.fileName)
+    await mkdir(path.dirname(wrapperPath), { recursive: true })
+    await writeFile(wrapperPath, renderWrapperContent(wrapperDefinition))
+    if (wrapperDefinition.executable) {
+      await chmod(wrapperPath, 0o755)
+    }
+  }
+}
+
 async function ensureWindowsBuildHomes() {
   const directories = [
     windowsHomeRoot,
@@ -249,20 +271,6 @@ function runCommand(command: string, args: string[], options: Parameters<typeof 
 
   if (nextScript !== script) {
     await writeFile(scriptPath, nextScript)
-  }
-}
-
-function normalizePlatform(value) {
-  switch (String(value).toLowerCase()) {
-    case "darwin":
-    case "macos":
-      return "macos"
-    case "win32":
-    case "windows":
-    case "windows_nt":
-      return "windows"
-    default:
-      return "linux"
   }
 }
 

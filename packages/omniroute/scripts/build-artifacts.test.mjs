@@ -1,8 +1,12 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { access, mkdtemp, readFile, stat } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 
-import { createMetadataPayload } from "./build-artifacts.mjs"
+import { createMetadataPayload, writePlatformWrappers } from "./build-artifacts.mjs"
 import { buildBlobKey } from "../../../scripts/publication.mjs"
+import { WINDOWS_WRAPPER_EXTENSIONS, getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions } from "./wrappers.mjs"
 
 test("createMetadataPayload emits vendored OmniRoute publication metadata", () => {
   const metadata = createMetadataPayload({
@@ -41,4 +45,104 @@ test("createMetadataPayload emits vendored OmniRoute publication metadata", () =
     fileName: "metadata.json",
     blobKey: "packages/omniroute/versions/2026.0505.0001/linux-amd64/metadata.json",
   })
+})
+
+test("getManifestBinEntries preserves every declared command and normalizes entrypaths", () => {
+  const binEntries = getManifestBinEntries({
+    bin: {
+      "omniroute-reset-password": "bin\\reset-password.mjs",
+      omniroute: "./bin/omniroute.mjs",
+    },
+  })
+
+  assert.deepEqual(binEntries, [
+    {
+      command: "omniroute",
+      entryPath: "bin/omniroute.mjs",
+    },
+    {
+      command: "omniroute-reset-password",
+      entryPath: "bin/reset-password.mjs",
+    },
+  ])
+})
+
+test("getWrapperDefinitions uses platform-specific naming and native smoke targets", () => {
+  const binEntries = [
+    {
+      command: "omniroute",
+      entryPath: "bin/omniroute.mjs",
+    },
+    {
+      command: "omniroute-reset-password",
+      entryPath: "bin/reset-password.mjs",
+    },
+  ]
+
+  const windowsWrappers = getWrapperDefinitions(binEntries, "windows")
+  assert.deepEqual(
+    windowsWrappers.map((wrapper) => wrapper.fileName),
+    [
+      "omniroute.cmd",
+      "omniroute.bat",
+      "omniroute.ps1",
+      "omniroute-reset-password.cmd",
+      "omniroute-reset-password.bat",
+      "omniroute-reset-password.ps1",
+    ],
+  )
+  assert.equal(getNativeSmokeWrapperFile(binEntries, "windows"), "omniroute.ps1")
+
+  const unixWrappers = getWrapperDefinitions(binEntries, "linux")
+  assert.deepEqual(
+    unixWrappers.map((wrapper) => wrapper.fileName),
+    ["omniroute.sh", "omniroute-reset-password.sh"],
+  )
+  assert.equal(getNativeSmokeWrapperFile(binEntries, "linux"), "omniroute.sh")
+})
+
+test("writePlatformWrappers emits archive-relative Windows wrappers for every command", async () => {
+  const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "omniroute-windows-wrappers-"))
+  const binEntries = [
+    {
+      command: "omniroute",
+      entryPath: "bin/omniroute.mjs",
+    },
+    {
+      command: "omniroute-reset-password",
+      entryPath: "bin/reset-password.mjs",
+    },
+  ]
+
+  await writePlatformWrappers(releaseRoot, binEntries, "windows")
+
+  for (const command of ["omniroute", "omniroute-reset-password"]) {
+    for (const extension of WINDOWS_WRAPPER_EXTENSIONS) {
+      await access(path.join(releaseRoot, `${command}${extension}`))
+    }
+  }
+
+  const cmdWrapper = await readFile(path.join(releaseRoot, "omniroute-reset-password.cmd"), "utf8")
+  assert.match(cmdWrapper, /set "SCRIPT_DIR=%~dp0"/)
+  assert.match(cmdWrapper, /%SCRIPT_DIR%bin\\reset-password\.mjs/)
+  assert.doesNotMatch(cmdWrapper, new RegExp(releaseRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+})
+
+test("writePlatformWrappers emits executable Unix shell wrappers", async () => {
+  const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "omniroute-unix-wrappers-"))
+  const binEntries = [
+    {
+      command: "omniroute",
+      entryPath: "bin/omniroute.mjs",
+    },
+  ]
+
+  await writePlatformWrappers(releaseRoot, binEntries, "linux")
+
+  const wrapperPath = path.join(releaseRoot, "omniroute.sh")
+  const wrapperContents = await readFile(wrapperPath, "utf8")
+  const wrapperStats = await stat(wrapperPath)
+
+  assert.match(wrapperContents, /exec node "\$SCRIPT_DIR\/bin\/omniroute\.mjs" "\$@"/)
+  assert.equal(wrapperStats.mode & 0o111, 0o111)
 })
