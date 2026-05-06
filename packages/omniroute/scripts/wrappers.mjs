@@ -64,7 +64,7 @@ node "%SCRIPT_DIR%${windowsRelativeEntrypoint}" %*
 exit /b %ERRORLEVEL%
 `
     case ".ps1":
-      return `$scriptDir = Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent
+      return `$scriptDir = $PSScriptRoot
 $target = Join-Path $scriptDir '${escapePowerShellLiteral(windowsRelativeEntrypoint)}'
 & node $target @args
 exit $LASTEXITCODE

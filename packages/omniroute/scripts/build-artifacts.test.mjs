@@ -126,6 +126,11 @@ test("writePlatformWrappers emits archive-relative Windows wrappers for every co
   assert.match(cmdWrapper, /set "SCRIPT_DIR=%~dp0"/)
   assert.match(cmdWrapper, /%SCRIPT_DIR%bin\\reset-password\.mjs/)
   assert.doesNotMatch(cmdWrapper, new RegExp(releaseRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+
+  const ps1Wrapper = await readFile(path.join(releaseRoot, "omniroute.ps1"), "utf8")
+  assert.match(ps1Wrapper, /\$scriptDir = \$PSScriptRoot/)
+  assert.match(ps1Wrapper, /\$target = Join-Path \$scriptDir 'bin\\omniroute\.mjs'/)
+  assert.doesNotMatch(ps1Wrapper, /Split-Path -LiteralPath/)
 })
 
 test("writePlatformWrappers emits executable Unix shell wrappers", async () => {
