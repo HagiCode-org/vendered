@@ -6,15 +6,9 @@ This repository stores vendored build inputs and CI automation.
 - `packages/code-server/upstream/` is a Git submodule pointing to `https://github.com/coder/code-server.git`.
 - `packages/omniroute/` contains the vendored OmniRoute integration.
 - `packages/omniroute/upstream/` is a Git submodule pointing to `https://github.com/diegosouzapw/OmniRoute.git`.
-- `.github/workflows/code-server-artifacts.yaml` is the shared vendored pipeline. It resolves one vendored version/tag per run, then builds `code-server` and OmniRoute in parallel, validates both package families, and publishes one shared Azure/index/GitHub Release result.
+- `.github/workflows/code-server-artifacts.yaml` is the shared vendored pipeline. It resolves one vendored version/tag per run, then builds `code-server` and OmniRoute in parallel, validates both package families, and publishes one shared GitHub Release result.
 - `packages/code-server/scripts/build-artifacts.mjs` and `packages/code-server/scripts/verify-startup.mjs` are the Node entrypoints for the build and post-build verification flow.
 - `packages/omniroute/scripts/build-artifacts.mjs` and `packages/omniroute/scripts/verify-startup.mjs` are the OmniRoute package-local build and packaged-entry verification entrypoints.
-
-## Azure publication
-
-The publication jobs in `.github/workflows/code-server-artifacts.yaml` run after both package families finish their per-platform build and verification jobs. One `prepare-release` step resolves the shared vendored version/tag, then `code-server` and OmniRoute build in parallel under that shared version. Publication still happens automatically on `push` to `main`, and it can also be triggered manually with `workflow_dispatch` by setting `publish_to_azure=true`.
-The shared workflow also has a daily schedule, but scheduled runs stop after build and verification so publication remains explicit.
-Because the SAS publication scripts only use repository files plus downloaded build artifacts, the publish jobs use a standalone Node 22 runtime and do not need the package submodule checkout.
 
 ## Release versioning
 
@@ -26,104 +20,8 @@ Published builds use a UTC date-based version in `YYYY.MMDD.RRRR` form, where:
 
 For example, the first qualifying workflow run on 2026-05-05 would produce `2026.0505.0001` and tag the repository as `v2026.0505.0001`.
 
-### Required GitHub configuration
-
-Configure the workflow with:
-
-- Repository secrets:
-  - `VENDORED_AZURE_CONTAINER_SAS_URL`
-
-The secret must be a full container-level SAS URL, for example:
-
-```text
-https://<account>.blob.core.windows.net/<container>?sp=racwdl&st=...&se=...&spr=https&sv=...&sr=c&sig=...
-```
-
-The scripts parse the storage account, container name, and SAS token from this one URL and use it for all blob reads and writes.
-Publication uses the Azure Blob REST API directly from Node.js, so the workflow does not require Azure CLI or Azure GitHub Actions.
-
-### Storage layout
-
-Each package publishes under a stable package/version/platform prefix:
-
-```text
-packages/<packageId>/versions/<version>/<platform>-<arch>/
-  code-server-<version>-<platform>-<arch>.<ext>
-  metadata.json
-index.json
-```
-
-For `code-server`, the initial contract is:
-
-- `packageId`: `code-server`
-- archive blob key: `packages/code-server/versions/<version>/<platform>-<arch>/code-server-<version>-<platform>-<arch>.<ext>`
-- metadata blob key: `packages/code-server/versions/<version>/<platform>-<arch>/metadata.json`
-
-For `omniroute`, the vendored contract is:
-
-- `packageId`: `omniroute`
-- archive blob key: `packages/omniroute/versions/<version>/<platform>-<arch>/omniroute-<version>-<platform>-<arch>.<ext>`
-- metadata blob key: `packages/omniroute/versions/<version>/<platform>-<arch>/metadata.json`
-
-`packages/code-server/scripts/build-artifacts.mjs` and `packages/omniroute/scripts/build-artifacts.mjs` emit normalized `metadata.json` with:
-
-- `schemaVersion`
-- `packageId`
-- `version`
-- `platform`
-- `arch`
-- `sourceRevision`
-- `extra`
-- `artifacts[]` with `kind`, `fileName`, `blobKey`, and integrity fields when available
-
-OmniRoute uses `extra.standaloneBundle = true` and `extra.packagedEntrypoint = "bin/omniroute.mjs"` so downstream publication records can identify the packaged entrypoint contract.
-
-If required metadata is missing, or any declared artifact file does not exist, publication fails before `index.json` is updated.
-
-`scripts/publish-to-azure.mjs` and `scripts/update-version-index.mjs` both require `AZURE_STORAGE_CONTAINER_SAS_URL` in the environment. The GitHub workflow maps that from `secrets.VENDORED_AZURE_CONTAINER_SAS_URL`.
-
 ## GitHub Release publication
 
-When publication is enabled, the shared workflow creates or updates one repository release tagged with `v<version>` and uploads both the `code-server` and OmniRoute `.tar.gz` / `.zip` archives from that same run. Asset names stay package-specific so both package families share one vendored release/tag without clobbering one another's archives. This runs in parallel with Azure publication and uses the workflow's built-in `GITHUB_TOKEN`, so no extra secret is required beyond the Azure SAS URL.
+After both package families finish their per-platform build and verification jobs, the shared workflow creates or updates one repository release tagged with `v<version>` and uploads both the `code-server` and OmniRoute `.tar.gz` / `.zip` archives from that same run. Asset names stay package-specific so both package families share one vendored release/tag without clobbering one another's archives. Publication still happens automatically on `push` to `main`, and it can also be triggered manually with `workflow_dispatch`. The shared workflow also has a daily schedule, but scheduled runs stop after build and verification so publication remains explicit.
 
-### `index.json` semantics
-
-The container root `index.json` is the canonical discovery entry point for all vendored packages. It uses one top-level package record per `packageId`, with versions stored as a map so repeated publication of the same package/version replaces the canonical entry instead of appending duplicates.
-
-Example shape:
-
-```json
-{
-  "schemaVersion": 1,
-  "generatedAt": "2026-05-05T00:00:00.000Z",
-  "packages": {
-    "code-server": {
-      "packageId": "code-server",
-      "versions": {
-        "1.2.3": {
-          "packageId": "code-server",
-          "version": "1.2.3",
-          "publishedAt": "2026-05-05T00:00:00.000Z",
-          "sourceRevision": "abc123",
-          "artifacts": [
-            {
-              "kind": "archive",
-              "fileName": "code-server-1.2.3-linux-amd64.tar.gz",
-              "blobKey": "packages/code-server/versions/1.2.3/linux-amd64/code-server-1.2.3-linux-amd64.tar.gz",
-              "platform": "linux",
-              "arch": "amd64",
-              "sha256": "..."
-            }
-          ],
-          "extra": {
-            "slimArtifact": true,
-            "bundledNodeRuntime": false
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-Future vendored packages can reuse the same blob layout and index contract by emitting normalized metadata with their own `packageId`.
+The GitHub release job uses the workflow's built-in `GITHUB_TOKEN`, so no extra repository secret is required.
