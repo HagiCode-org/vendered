@@ -2,12 +2,6 @@ name: Build vendored artifacts
 
 on:
   workflow_dispatch:
-    inputs:
-      publish_to_azure:
-        description: Publish built artifacts to Azure Storage after all builds succeed
-        required: false
-        type: boolean
-        default: false
   schedule:
     - cron: "23 3 * * *"
   push:
@@ -321,64 +315,6 @@ jobs:
       - name: Verify downloaded release
         run: node ./packages/omniroute/scripts/verify-startup.mjs
 
-  publish_azure:
-    name: publish-azure
-    needs:
-      - prepare_release
-      - build_code_server
-      - build_omniroute
-      - verify_code_server
-      - verify_omniroute
-    if: >-
-      ${{
-        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_azure == 'true')
-      }}
-    runs-on: ubuntu-22.04
-    concurrency:
-      group: vendered-azure-publication
-      cancel-in-progress: false
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Download code-server build artifacts
-        uses: actions/download-artifact@v5
-        with:
-          pattern: code-server-*
-          path: downloaded
-
-      - name: Download OmniRoute build artifacts
-        uses: actions/download-artifact@v5
-        with:
-          pattern: omniroute-*
-          path: downloaded
-
-      - name: Validate Azure SAS secret
-        shell: bash
-        env:
-          AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
-        run: |
-          if [[ -z "${AZURE_STORAGE_CONTAINER_SAS_URL}" ]]; then
-            echo "Missing GitHub secret: VENDORED_AZURE_CONTAINER_SAS_URL" >&2
-            exit 1
-          fi
-
-      - name: Publish vendored artifacts to Azure Storage
-        env:
-          AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
-        run: node ./scripts/publish-to-azure.mjs --artifacts-dir downloaded --publish-result artifacts/publish-result.json
-
-      - name: Update version index
-        env:
-          AZURE_STORAGE_CONTAINER_SAS_URL: ${{ secrets.VENDORED_AZURE_CONTAINER_SAS_URL }}
-        run: node ./scripts/update-version-index.mjs --publish-result artifacts/publish-result.json
-
   publish_github_release:
     name: publish-github-release
     needs:
@@ -390,7 +326,7 @@ jobs:
     if: >-
       ${{
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_azure == 'true')
+        github.event_name == 'workflow_dispatch'
       }}
     runs-on: ubuntu-22.04
     concurrency:
