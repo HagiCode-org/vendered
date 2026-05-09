@@ -4,7 +4,7 @@ import { access, mkdtemp, readFile, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { createMetadataPayload, writePlatformWrappers } from "./build-artifacts.mjs"
+import { createMetadataPayload, patchPrepublishScriptSource, writePlatformWrappers } from "./build-artifacts.mjs"
 import { buildBlobKey } from "../../../scripts/publication.mjs"
 import { WINDOWS_WRAPPER_EXTENSIONS, getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions } from "./wrappers.mjs"
 
@@ -150,4 +150,36 @@ test("writePlatformWrappers emits executable Unix shell wrappers", async () => {
 
   assert.match(wrapperContents, /exec node "\$SCRIPT_DIR\/bin\/omniroute\.mjs" "\$@"/)
   assert.equal(wrapperStats.mode & 0o111, 0o111)
+})
+
+
+test("patchPrepublishScriptSource copies responses proxy into app and keeps Windows command patching", () => {
+  const fixture = String.raw`const NPM_BIN = process.platform === "win32" ? "npm.cmd" : "npm";
+const NPX_BIN = process.platform === "win32" ? "npx.cmd" : "npx";
+const APP_DIR = join(ROOT, "app");
+
+if (existsSync(standaloneWsSrc) && existsSync(responsesWsProxySrc)) {
+  console.log("  📋 Adding Responses WebSocket standalone wrapper...");
+  cpSync(standaloneWsSrc, join(APP_DIR, "server-ws.mjs"));
+  writeFileSync(
+    join(APP_DIR, "responses-ws-proxy.mjs"),
+    'export * from "../scripts/responses-ws-proxy.mjs";\n'
+  );
+}
+
+execFileSync(NPM_BIN, ["install"], { cwd: ROOT, stdio: "inherit" });
+execFileSync(NPX_BIN, ["next", "build"], { cwd: ROOT, stdio: "inherit" });`;
+
+  const linuxPatched = patchPrepublishScriptSource(fixture, "linux")
+  assert.equal(linuxPatched.includes('cpSync(responsesWsProxySrc, join(APP_DIR, "responses-ws-proxy.mjs"));'), true)
+  assert.equal(linuxPatched.includes('export * from "../scripts/responses-ws-proxy.mjs"'), false)
+  assert.equal(linuxPatched.includes('execFileSync(NPM_BIN,'), true)
+
+  const windowsPatched = patchPrepublishScriptSource(fixture, "windows")
+  assert.equal(windowsPatched.includes('const NPM_BIN = process.env.OMNIROUTE_NPM_BIN || "npm";'), true)
+  assert.equal(windowsPatched.includes('const NPX_BIN = process.env.OMNIROUTE_NPX_BIN || "npx";'), true)
+  assert.equal(windowsPatched.includes('function runCommand(command: string, args: string[], options: Parameters<typeof execFileSync>[2] = {})'), true)
+  assert.equal(windowsPatched.includes('runCommand(NPM_BIN,'), true)
+  assert.equal(windowsPatched.includes('runCommand(NPX_BIN,'), true)
+  assert.equal(windowsPatched.includes('cpSync(responsesWsProxySrc, join(APP_DIR, "responses-ws-proxy.mjs"));'), true)
 })

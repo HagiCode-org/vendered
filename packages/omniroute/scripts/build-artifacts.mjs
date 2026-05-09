@@ -43,8 +43,9 @@ async function main() {
 
   if (platform === "windows") {
     await ensureWindowsBuildHomes()
-    await patchWindowsPrepublishCommands()
   }
+
+  await patchPrepublishScript()
 
   await run("npm", ["ci", "--no-audit", "--no-fund"], {
     cwd: upstreamRoot,
@@ -243,21 +244,25 @@ async function ensureWindowsBuildHomes() {
   }
 }
 
-async function patchWindowsPrepublishCommands() {
-  const scriptPath = path.join(upstreamRoot, "scripts", "prepublish.ts")
-  const script = await readFile(scriptPath, "utf8")
-  const nextScript = script
-    .replace(
-      'const NPM_BIN = process.platform === "win32" ? "npm.cmd" : "npm";',
-      'const NPM_BIN = process.env.OMNIROUTE_NPM_BIN || "npm";',
-    )
-    .replace(
-      'const NPX_BIN = process.platform === "win32" ? "npx.cmd" : "npx";',
-      'const NPX_BIN = process.env.OMNIROUTE_NPX_BIN || "npx";',
-    )
-    .replace(
-      'const APP_DIR = join(ROOT, "app");',
-      `const APP_DIR = join(ROOT, "app");
+export function patchPrepublishScriptSource(script, targetPlatform = platform) {
+  let nextScript = script.replace(
+    /\n\s*writeFileSync\(\n\s*join\(APP_DIR, "responses-ws-proxy\.mjs"\),\n\s*'export \* from "\.\.\/scripts\/responses-ws-proxy\.mjs";\\n'\n\s*\);/,
+    '\n  cpSync(responsesWsProxySrc, join(APP_DIR, "responses-ws-proxy.mjs"));',
+  )
+
+  if (targetPlatform === "windows") {
+    nextScript = nextScript
+      .replace(
+        'const NPM_BIN = process.platform === "win32" ? "npm.cmd" : "npm";',
+        'const NPM_BIN = process.env.OMNIROUTE_NPM_BIN || "npm";',
+      )
+      .replace(
+        'const NPX_BIN = process.platform === "win32" ? "npx.cmd" : "npx";',
+        'const NPX_BIN = process.env.OMNIROUTE_NPX_BIN || "npx";',
+      )
+      .replace(
+        'const APP_DIR = join(ROOT, "app");',
+        `const APP_DIR = join(ROOT, "app");
 
 function runCommand(command: string, args: string[], options: Parameters<typeof execFileSync>[2] = {}) {
   if (process.platform !== "win32") {
@@ -266,9 +271,18 @@ function runCommand(command: string, args: string[], options: Parameters<typeof 
 
   return execFileSync(process.env.ComSpec || "C:\\\\Windows\\\\System32\\\\cmd.exe", ["/d", "/s", "/c", command, ...args], options);
 }`,
-    )
-    .replaceAll("execFileSync(NPM_BIN,", "runCommand(NPM_BIN,")
-    .replaceAll("execFileSync(NPX_BIN,", "runCommand(NPX_BIN,")
+      )
+      .replaceAll("execFileSync(NPM_BIN,", "runCommand(NPM_BIN,")
+      .replaceAll("execFileSync(NPX_BIN,", "runCommand(NPX_BIN,")
+  }
+
+  return nextScript
+}
+
+async function patchPrepublishScript() {
+  const scriptPath = path.join(upstreamRoot, "scripts", "prepublish.ts")
+  const script = await readFile(scriptPath, "utf8")
+  const nextScript = patchPrepublishScriptSource(script)
 
   if (nextScript !== script) {
     await writeFile(scriptPath, nextScript)
