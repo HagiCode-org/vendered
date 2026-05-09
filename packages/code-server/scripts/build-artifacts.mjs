@@ -19,10 +19,12 @@ const packageId = "code-server"
 const platform = normalizePlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
 const arch = normalizeArch(process.env.ARCH || process.arch)
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : String(error))
-  process.exitCode = 1
-})
+if (isMainModule()) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack || error.message : String(error))
+    process.exitCode = 1
+  })
+}
 
 async function main() {
   process.chdir(root)
@@ -31,15 +33,17 @@ async function main() {
   const version = await resolveVersion()
 
   await run("git", ["submodule", "update", "--init", "--recursive"], { cwd: root })
+  const sourceRevision = (await readGitOutput(["rev-parse", "HEAD"], codeServerRoot)).trim()
 
   await rm(artifactsDir, { recursive: true, force: true })
   await mkdir(artifactsDir, { recursive: true })
 
   await runBuildPipeline(version)
   await slimRelease()
+  await writePackagedReadme(releaseDir, { version, sourceRevision, targetPlatform: platform, targetArch: arch })
 
   const artifacts = await collectArtifacts(version)
-  await writeMetadata(version, artifacts)
+  await writeMetadata(version, sourceRevision, artifacts)
 }
 
 async function runBuildPipeline(version) {
@@ -195,8 +199,77 @@ async function collectArtifacts(version) {
   ]
 }
 
-async function writeMetadata(version, artifacts) {
-  const revision = await readGitOutput(["rev-parse", "HEAD"], codeServerRoot)
+export async function writePackagedReadme(releaseRoot, details) {
+  const readmePath = path.join(releaseRoot, "README.md")
+  const upstreamReadmePath = path.join(releaseRoot, "README.upstream.md")
+
+  if ((await exists(readmePath)) && !(await exists(upstreamReadmePath))) {
+    await writeFile(upstreamReadmePath, await readFile(readmePath, "utf8"))
+  }
+
+  await writeFile(readmePath, renderPackagedReadme(details))
+}
+
+export function renderPackagedReadme({ version, sourceRevision, targetPlatform = platform, targetArch = arch }) {
+  const usageBlock =
+    targetPlatform === "windows"
+      ? [
+          "```powershell",
+          ".\\bin\\code-server.cmd --help",
+          ".\\bin\\code-server.cmd --bind-addr 0.0.0.0:8080 .",
+          "```",
+          "",
+          "Direct Node entrypoint:",
+          "",
+          "```powershell",
+          "node .\\out\\node\\entry.js --help",
+          "```",
+        ].join("\n")
+      : [
+          "```bash",
+          "./bin/code-server --help",
+          "./bin/code-server --bind-addr 0.0.0.0:8080 .",
+          "```",
+          "",
+          "Direct Node entrypoint:",
+          "",
+          "```bash",
+          "node ./out/node/entry.js --help",
+          "```",
+        ].join("\n")
+
+  return [
+    "# code-server",
+    "",
+    "This archive is the HagiCode vendored slim build of code-server. Extract it and run it directly.",
+    "",
+    "## Usage",
+    "",
+    "1. Extract the archive and change into the extracted directory.",
+    "2. Start code-server with the wrapper below.",
+    "",
+    usageBlock,
+    "",
+    "## Dependencies",
+    "",
+    "- Node.js 22 must be available on PATH. This archive does not bundle a Node runtime.",
+    "- A modern web browser is required to use the UI after the server starts.",
+    "",
+    "## Version",
+    "",
+    `- Package: \`${packageId}\``,
+    `- Packaged version: \`${version}\``,
+    `- Target: \`${targetPlatform}/${targetArch}\``,
+    `- Source revision: \`${sourceRevision}\``,
+    "",
+    "## Notes",
+    "",
+    "- The original upstream README is preserved as `README.upstream.md` when it exists in the release tree.",
+    "",
+  ].join("\n")
+}
+
+async function writeMetadata(version, sourceRevision, artifacts) {
   const metadataFileName = "metadata.json"
   await writeFile(
     path.join(artifactsDir, metadataFileName),
@@ -207,7 +280,7 @@ async function writeMetadata(version, artifacts) {
         version,
         platform,
         arch,
-        sourceRevision: revision.trim(),
+        sourceRevision,
         extra: {
           slimArtifact: true,
           bundledNodeRuntime: false,
@@ -279,6 +352,15 @@ function normalizeArch(value) {
       return "arm64"
     default:
       return value
+  }
+}
+
+async function exists(targetPath) {
+  try {
+    await access(targetPath)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -374,4 +456,8 @@ function escapePowerShell(value) {
 async function calculateSha256(filePath) {
   const contents = await readFile(filePath)
   return createHash("sha256").update(contents).digest("hex")
+}
+
+function isMainModule() {
+  return process.argv[1] != null && path.resolve(process.argv[1]) === __filename
 }

@@ -36,6 +36,7 @@ async function main() {
   const version = process.env.VERSION || upstreamVersion
 
   await run("git", ["submodule", "update", "--init", "--recursive"], { cwd: root })
+  const sourceRevision = (await readGitOutput(["rev-parse", "HEAD"], upstreamRoot)).trim()
   await rm(artifactsDir, { recursive: true, force: true })
   await rm(releaseWorkspace, { recursive: true, force: true })
   await mkdir(artifactsDir, { recursive: true })
@@ -61,12 +62,12 @@ async function main() {
     env: withBuildEnv(process.env, version),
   })
 
-  const releaseRoot = await stageReleaseTree(version)
+  const releaseRoot = await stageReleaseTree({ version, upstreamVersion, sourceRevision })
   const artifacts = await createArchive(version, releaseRoot)
-  await writeMetadata(version, upstreamVersion, artifacts)
+  await writeMetadata(version, upstreamVersion, sourceRevision, artifacts)
 }
 
-async function stageReleaseTree(version) {
+async function stageReleaseTree({ version, upstreamVersion, sourceRevision }) {
   const releaseRoot = path.join(releaseWorkspace, `${packageId}-${version}-${platform}-${arch}`)
   await rm(releaseRoot, { recursive: true, force: true })
   await mkdir(releaseRoot, { recursive: true })
@@ -98,6 +99,7 @@ async function stageReleaseTree(version) {
   await access(path.join(releaseRoot, "app", "server.js"))
   await assertPackagedEntrypoints(releaseRoot, binEntries)
   await writePlatformWrappers(releaseRoot, binEntries, platform)
+  await writePackagedReadme(releaseRoot, { version, upstreamVersion, sourceRevision, targetPlatform: platform, targetArch: arch })
 
   return releaseRoot
 }
@@ -141,12 +143,11 @@ async function createArchive(version, releaseRoot) {
   ]
 }
 
-async function writeMetadata(version, upstreamVersion, artifacts) {
-  const revision = (await readGitOutput(["rev-parse", "HEAD"], upstreamRoot)).trim()
+async function writeMetadata(version, upstreamVersion, sourceRevision, artifacts) {
   const metadataFileName = "metadata.json"
   await writeFile(
     path.join(artifactsDir, metadataFileName),
-    `${JSON.stringify(createMetadataPayload({ version, upstreamVersion, sourceRevision: revision, artifacts }), null, 2)}\n`,
+    `${JSON.stringify(createMetadataPayload({ version, upstreamVersion, sourceRevision, artifacts }), null, 2)}\n`,
   )
 }
 
@@ -180,6 +181,82 @@ export function createMetadataPayload({ version, upstreamVersion, sourceRevision
       },
     ],
   }
+}
+
+export async function writePackagedReadme(releaseRoot, details) {
+  const readmePath = path.join(releaseRoot, "README.md")
+  const upstreamReadmePath = path.join(releaseRoot, "README.upstream.md")
+
+  if ((await exists(readmePath)) && !(await exists(upstreamReadmePath))) {
+    await writeFile(upstreamReadmePath, await readFile(readmePath, "utf8"))
+  }
+
+  await writeFile(readmePath, renderPackagedReadme(details))
+}
+
+export function renderPackagedReadme({ version, upstreamVersion, sourceRevision, targetPlatform = platform, targetArch = arch }) {
+  const usageBlock =
+    targetPlatform === "windows"
+      ? [
+          "```powershell",
+          ".\\omniroute.cmd --help",
+          ".\\omniroute.cmd",
+          ".\\omniroute-reset-password.cmd",
+          "```",
+          "",
+          "Direct Node entrypoint:",
+          "",
+          "```powershell",
+          "node .\\bin\\omniroute.mjs --help",
+          "```",
+        ].join("\n")
+      : [
+          "```bash",
+          "./omniroute.sh --help",
+          "./omniroute.sh",
+          "./omniroute-reset-password.sh",
+          "```",
+          "",
+          "Direct Node entrypoint:",
+          "",
+          "```bash",
+          "node ./bin/omniroute.mjs --help",
+          "```",
+        ].join("\n")
+
+  return [
+    "# omniroute",
+    "",
+    "This archive is the HagiCode vendored standalone OmniRoute bundle. Extract it and run it directly.",
+    "",
+    "## Usage",
+    "",
+    "1. Extract the archive and change into the extracted directory.",
+    "2. If you need provider credentials or other runtime settings, start from `.env.example`.",
+    "3. Start OmniRoute with the wrapper below.",
+    "",
+    usageBlock,
+    "",
+    "## Dependencies",
+    "",
+    "- Run this vendored build with Node.js 22. The archive includes `.node-version` with `22`.",
+    "- No Node runtime is bundled. The wrapper scripts call `node` from PATH.",
+    "- Provider credentials, network access, and any route-specific configuration remain external dependencies.",
+    "",
+    "## Version",
+    "",
+    `- Package: \`${packageId}\``,
+    `- Packaged version: \`${version}\``,
+    `- Upstream version: \`${upstreamVersion}\``,
+    `- Target: \`${targetPlatform}/${targetArch}\``,
+    `- Source revision: \`${sourceRevision}\``,
+    "",
+    "## Notes",
+    "",
+    "- Packaged CLI entrypoint: `bin/omniroute.mjs`",
+    "- The original upstream README is preserved as `README.upstream.md` when it exists in the release tree.",
+    "",
+  ].join("\n")
 }
 
 async function readUpstreamVersion() {

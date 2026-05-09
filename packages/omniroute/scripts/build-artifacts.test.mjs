@@ -1,10 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { access, mkdtemp, readFile, stat } from "node:fs/promises"
+import { access, mkdtemp, readFile, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { createMetadataPayload, patchPrepublishScriptSource, patchResponsesWsProxySource, writePlatformWrappers } from "./build-artifacts.mjs"
+import { createMetadataPayload, patchPrepublishScriptSource, patchResponsesWsProxySource, renderPackagedReadme, writePackagedReadme, writePlatformWrappers } from "./build-artifacts.mjs"
 import { buildBlobKey } from "../../../scripts/publication.mjs"
 import { WINDOWS_WRAPPER_EXTENSIONS, getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions } from "./wrappers.mjs"
 
@@ -202,4 +202,38 @@ export function createResponsesWsProxy({
   assert.equal(patched.includes('const require = createRequire(import.meta.url);'), true)
   assert.equal(patched.includes('const module = requireFn("wreq-js");'), true)
   assert.equal(patched.includes('wsFactory = loadDefaultWsFactory(),'), true)
+})
+
+
+test("renderPackagedReadme emits OmniRoute usage, dependency, and version details", () => {
+  const readme = renderPackagedReadme({
+    version: "2026.0505.0001",
+    upstreamVersion: "3.7.9",
+    sourceRevision: "abc123",
+    targetPlatform: "windows",
+    targetArch: "amd64",
+  })
+
+  assert.match(readme, /\.\\omniroute\.cmd --help/)
+  assert.match(readme, /\.node-version/)
+  assert.match(readme, /Upstream version: `3\.7\.9`/)
+  assert.match(readme, /Packaged CLI entrypoint: `bin\/omniroute\.mjs`/)
+})
+
+test("writePackagedReadme preserves the upstream OmniRoute README before overwriting it", async () => {
+  const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "omniroute-readme-"))
+  await writeFile(path.join(releaseRoot, "README.md"), "upstream docs\n")
+
+  await writePackagedReadme(releaseRoot, {
+    version: "2026.0505.0001",
+    upstreamVersion: "3.7.9",
+    sourceRevision: "abc123",
+    targetPlatform: "linux",
+    targetArch: "amd64",
+  })
+
+  assert.equal(await readFile(path.join(releaseRoot, "README.upstream.md"), "utf8"), "upstream docs\n")
+  const packagedReadme = await readFile(path.join(releaseRoot, "README.md"), "utf8")
+  assert.match(packagedReadme, /# omniroute/)
+  assert.match(packagedReadme, /\.\/omniroute\.sh --help/)
 })
