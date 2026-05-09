@@ -91,6 +91,7 @@ async function stageReleaseTree(version) {
   const stagedManifest = JSON.parse(await readFile(stagedManifestPath, "utf8"))
   stagedManifest.version = version
   await writeFile(stagedManifestPath, `${JSON.stringify(stagedManifest, null, 2)}\n`)
+  await writeFile(path.join(releaseRoot, ".node-version"), "22\n")
 
   await access(path.join(releaseRoot, "app", "server.js"))
   await assertPackagedEntrypoints(releaseRoot, binEntries)
