@@ -26,6 +26,6 @@ test("verification wrapper expectations stay aligned with the manifest command s
     getWrapperDefinitions(binEntries, "macos").map((wrapper) => wrapper.fileName),
     ["omniroute.sh", "omniroute-reset-password.sh"],
   )
-  assert.equal(getNativeSmokeWrapperFile(binEntries, "windows"), "omniroute.ps1")
+  assert.equal(getNativeSmokeWrapperFile(binEntries, "windows"), "omniroute.cmd")
   assert.equal(getNativeSmokeWrapperFile(binEntries, "macos"), "omniroute.sh")
 })

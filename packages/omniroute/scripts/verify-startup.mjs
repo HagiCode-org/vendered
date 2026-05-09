@@ -141,8 +141,8 @@ async function runNativeWrapperVersion(releaseRoot, binEntries, targetPlatform, 
 
   if (targetPlatform === "windows") {
     return runAndCapture(
-      "powershell.exe",
-      ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapperPath, "--version"],
+      "cmd.exe",
+      ["/d", "/s", "/c", `"${wrapperPath}" --version`],
       {
         cwd: releaseRoot,
         env,

@@ -47,7 +47,7 @@ export function getNativeSmokeWrapperFile(binEntries, targetPlatform) {
   }
 
   return normalizeTargetPlatform(targetPlatform) === "windows"
-    ? `${preferredEntry.command}.ps1`
+    ? `${preferredEntry.command}.cmd`
     : `${preferredEntry.command}${UNIX_WRAPPER_EXTENSION}`
 }
 

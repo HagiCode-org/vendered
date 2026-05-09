@@ -91,7 +91,7 @@ test("getWrapperDefinitions uses platform-specific naming and native smoke targe
       "omniroute-reset-password.ps1",
     ],
   )
-  assert.equal(getNativeSmokeWrapperFile(binEntries, "windows"), "omniroute.ps1")
+  assert.equal(getNativeSmokeWrapperFile(binEntries, "windows"), "omniroute.cmd")
 
   const unixWrappers = getWrapperDefinitions(binEntries, "linux")
   assert.deepEqual(
