@@ -4,7 +4,7 @@ import { spawn } from "node:child_process"
 import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions, normalizeTargetPlatform, resolveReleasePath } from "./wrappers.mjs"
 
@@ -14,10 +14,12 @@ const packageRoot = path.resolve(__dirname, "..")
 const root = path.resolve(packageRoot, "../..")
 const downloadedDir = path.resolve(root, process.env.ARTIFACTS_DOWNLOAD_DIR || path.join("downloaded", "omniroute"))
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : String(error))
-  process.exitCode = 1
-})
+if (isMainModule()) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack || error.message : String(error))
+    process.exitCode = 1
+  })
+}
 
 async function main() {
   const metadataPath = await findFile(downloadedDir, (entryPath) => path.basename(entryPath) === "metadata.json")
@@ -139,17 +141,6 @@ async function runNativeWrapperVersion(releaseRoot, binEntries, targetPlatform, 
   const wrapperFile = getNativeSmokeWrapperFile(binEntries, targetPlatform)
   const wrapperPath = resolveReleasePath(releaseRoot, wrapperFile)
 
-  if (targetPlatform === "windows") {
-    return runAndCapture(
-      "cmd.exe",
-      ["/d", "/s", "/c", `"${wrapperPath}" --version`],
-      {
-        cwd: releaseRoot,
-        env,
-      },
-    )
-  }
-
   return runAndCapture(wrapperPath, ["--version"], {
     cwd: releaseRoot,
     env,
@@ -192,9 +183,22 @@ async function exists(targetPath) {
   }
 }
 
+export function resolveSpawnInvocation(command, args, hostPlatform = process.platform) {
+  if (hostPlatform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+    return {
+      command: process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe",
+      args: ["/d", "/s", "/c", command, ...args],
+    }
+  }
+
+  return { command, args }
+}
+
 function run(command, args, options = {}) {
+  const invocation = resolveSpawnInvocation(command, args)
+
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(invocation.command, invocation.args, {
       cwd: options.cwd || root,
       env: options.env || process.env,
       stdio: "inherit",
@@ -206,14 +210,16 @@ function run(command, args, options = {}) {
         resolve()
         return
       }
-      reject(new Error(`${command} ${args.join(" ")} exited with code ${code}`))
+      reject(new Error(`${invocation.command} ${invocation.args.join(" ")} exited with code ${code}`))
     })
   })
 }
 
 function runAndCapture(command, args, options = {}) {
+  const invocation = resolveSpawnInvocation(command, args)
+
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(invocation.command, invocation.args, {
       cwd: options.cwd || root,
       env: options.env || process.env,
       stdio: ["ignore", "pipe", "inherit"],
@@ -230,11 +236,15 @@ function runAndCapture(command, args, options = {}) {
         resolve(output)
         return
       }
-      reject(new Error(`${command} ${args.join(" ")} exited with code ${code}`))
+      reject(new Error(`${invocation.command} ${invocation.args.join(" ")} exited with code ${code}`))
     })
   })
 }
 
 function escapePowerShell(value) {
   return value.replaceAll("'", "''")
+}
+
+function isMainModule() {
+  return process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href
 }
