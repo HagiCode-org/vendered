@@ -48,10 +48,50 @@ jobs:
         id: version
         run: node ./scripts/versioning.mjs >> "$GITHUB_OUTPUT"
 
-  build_code_server:
-    name: ${{ matrix.name }}
+  create_github_release:
+    name: create-github-release
     needs: prepare_release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ format('vendered-github-release-{0}', needs.prepare_release.outputs.tag) }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Create or update GitHub release metadata
+        if: >-
+          ${{
+            (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+            github.event_name == 'workflow_dispatch'
+          }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          node ./scripts/github-release.mjs
+          --create-only
+          --tag "${{ needs.prepare_release.outputs.tag }}"
+          --name "${{ needs.prepare_release.outputs.version }}"
+          --target-commitish "${{ github.sha }}"
+
+  build_verify_publish_code_server:
+    name: ${{ matrix.name }}
+    needs:
+      - prepare_release
+      - create_github_release
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ format('vendered-release-{0}-{1}', needs.prepare_release.outputs.tag, matrix.artifact_name) }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -133,17 +173,36 @@ jobs:
       - name: Build artifacts
         run: node ./packages/code-server/scripts/build-artifacts.mjs
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: artifacts/code-server/*
-          if-no-files-found: error
+      - name: Verify built release can start
+        run: node ./packages/code-server/scripts/verify-startup.mjs
 
-  build_omniroute:
+      - name: Upload verified build to GitHub release
+        if: >-
+          ${{
+            (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+            github.event_name == 'workflow_dispatch'
+          }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          node ./scripts/github-release.mjs
+          --artifacts-dir artifacts/code-server
+          --tag "${{ needs.prepare_release.outputs.tag }}"
+          --name "${{ needs.prepare_release.outputs.version }}"
+          --target-commitish "${{ github.sha }}"
+          --preserve-release-metadata
+
+  build_verify_publish_omniroute:
     name: ${{ matrix.name }}
-    needs: prepare_release
+    needs:
+      - prepare_release
+      - create_github_release
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ format('vendered-release-{0}-{1}', needs.prepare_release.outputs.tag, matrix.artifact_name) }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -191,176 +250,23 @@ jobs:
       - name: Build artifacts
         run: node ./packages/omniroute/scripts/build-artifacts.mjs
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: artifacts/omniroute/*
-          if-no-files-found: error
-
-  verify_code_server:
-    name: ${{ format('verify-{0}', matrix.name) }}
-    needs: build_code_server
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: code-server Linux
-            runner: ubuntu-22.04
-            artifact_name: code-server-linux
-            bash_path: bash
-          - name: code-server macOS
-            runner: macos-latest
-            artifact_name: code-server-macos
-            bash_path: bash
-          - name: code-server Windows
-            runner: windows-latest
-            artifact_name: code-server-windows
-            bash_path: C:\msys64\usr\bin\bash.exe
-
-    env:
-      BASH_PATH: ${{ matrix.bash_path }}
-      NPM_CONFIG_SCRIPT_SHELL: ${{ matrix.bash_path }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: packages/code-server/upstream/.node-version
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: downloaded/code-server
-
-      - name: Extract downloaded artifact
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p extracted/code-server
-          ARCHIVE="$(find downloaded/code-server -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) | head -n 1)"
-          test -n "$ARCHIVE"
-          case "$ARCHIVE" in
-            *.tar.gz) tar -xzf "$ARCHIVE" -C extracted/code-server ;;
-            *.zip) unzip -q "$ARCHIVE" -d extracted/code-server ;;
-            *) echo "Unsupported archive: $ARCHIVE" >&2; exit 1 ;;
-          esac
-          RELEASE_DIR="$(find extracted/code-server -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-          test -n "$RELEASE_DIR"
-          echo "CODE_SERVER_ROOT=$RELEASE_DIR" >> "$GITHUB_ENV"
-
-      - name: Extract downloaded artifact
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path extracted/code-server | Out-Null
-          $archive = Get-ChildItem downloaded/code-server -File | Where-Object { $_.Name -match '(\.zip|\.tar\.gz)$' } | Select-Object -First 1
-          if (-not $archive) { throw 'No archive found in downloaded/code-server' }
-          if ($archive.Name -like '*.zip') {
-            Expand-Archive -Path $archive.FullName -DestinationPath extracted/code-server -Force
-          } else {
-            tar -xzf $archive.FullName -C extracted/code-server
-          }
-          $releaseDir = Get-ChildItem extracted/code-server -Directory | Select-Object -First 1
-          if (-not $releaseDir) { throw 'No extracted release directory found' }
-          Add-Content -Path $env:GITHUB_ENV -Value ("CODE_SERVER_ROOT={0}" -f $releaseDir.FullName)
-
-      - name: Verify downloaded release can start
-        run: node ./packages/code-server/scripts/verify-startup.mjs
-
-  verify_omniroute:
-    name: ${{ format('verify-{0}', matrix.name) }}
-    needs: build_omniroute
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: omniroute Linux x64
-            runner: ubuntu-22.04
-            artifact_name: omniroute-linux-amd64
-          - name: omniroute macOS x64
-            runner: macos-15-intel
-            artifact_name: omniroute-macos-amd64
-          - name: omniroute macOS arm64
-            runner: macos-14
-            artifact_name: omniroute-macos-arm64
-          - name: omniroute Windows x64
-            runner: windows-latest
-            artifact_name: omniroute-windows-amd64
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: downloaded/omniroute
-
-      - name: Verify downloaded release
+      - name: Verify built release
+        env:
+          ARTIFACTS_DOWNLOAD_DIR: artifacts/omniroute
         run: node ./packages/omniroute/scripts/verify-startup.mjs
 
-  publish_github_release:
-    name: publish-github-release
-    needs:
-      - prepare_release
-      - build_code_server
-      - build_omniroute
-      - verify_code_server
-      - verify_omniroute
-    if: >-
-      ${{
-        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        github.event_name == 'workflow_dispatch'
-      }}
-    runs-on: ubuntu-22.04
-    concurrency:
-      group: ${{ format('vendered-github-release-{0}', needs.prepare_release.outputs.tag) }}
-      cancel-in-progress: false
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Download code-server build artifacts
-        uses: actions/download-artifact@v5
-        with:
-          pattern: code-server-*
-          path: downloaded
-
-      - name: Download OmniRoute build artifacts
-        uses: actions/download-artifact@v5
-        with:
-          pattern: omniroute-*
-          path: downloaded
-
-      - name: Create GitHub release and upload build archives
+      - name: Upload verified build to GitHub release
+        if: >-
+          ${{
+            (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+            github.event_name == 'workflow_dispatch'
+          }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
           node ./scripts/github-release.mjs
-          --artifacts-dir downloaded
+          --artifacts-dir artifacts/omniroute
           --tag "${{ needs.prepare_release.outputs.tag }}"
           --name "${{ needs.prepare_release.outputs.version }}"
           --target-commitish "${{ github.sha }}"
+          --preserve-release-metadata

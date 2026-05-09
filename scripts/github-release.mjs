@@ -39,30 +39,37 @@ export async function collectReleaseAssets(artifactsDir) {
 }
 
 export function buildReleaseBody({ version, targetCommitish, assetNames }) {
-  return [`Vendored build ${version}`, "", `Commit: ${targetCommitish}`, "", "Assets:", ...assetNames.map((name) => `- ${name}`), ""].join(
-    "\n",
-  )
+  const names = Array.isArray(assetNames) ? assetNames : []
+  return [
+    `Vendored build ${version}`,
+    "",
+    `Commit: ${targetCommitish}`,
+    "",
+    ...(names.length > 0
+      ? ["Assets:", ...names.map((name) => `- ${name}`)]
+      : ["Assets are published incrementally as verified builds complete."]),
+    "",
+  ].join("\n")
 }
 
-export async function publishGitHubRelease({
-  artifactsDir,
+export async function ensureGitHubRelease({
   repository,
   token,
   tagName,
   releaseName,
   targetCommitish,
   body,
+  updateExisting = true,
   apiBaseUrl = "https://api.github.com",
   fetchImpl = fetch,
 }) {
   const { owner, repo } = parseRepository(repository)
-  const assets = await collectReleaseAssets(artifactsDir)
   const releaseBody =
     body ||
     buildReleaseBody({
       version: releaseName,
       targetCommitish,
-      assetNames: assets.map((asset) => asset.name),
+      assetNames: [],
     })
 
   const existingRelease = await getReleaseByTag({
@@ -74,27 +81,66 @@ export async function publishGitHubRelease({
     fetchImpl,
   })
 
-  const release = existingRelease
-    ? await updateRelease({
-        releaseUrl: existingRelease.url,
-        token,
-        releaseName,
-        targetCommitish,
-        body: releaseBody,
-        apiBaseUrl,
-        fetchImpl,
-      })
-    : await createRelease({
-        owner,
-        repo,
-        token,
-        tagName,
-        releaseName,
-        targetCommitish,
-        body: releaseBody,
-        apiBaseUrl,
-        fetchImpl,
-      })
+  if (!existingRelease) {
+    return createRelease({
+      owner,
+      repo,
+      token,
+      tagName,
+      releaseName,
+      targetCommitish,
+      body: releaseBody,
+      apiBaseUrl,
+      fetchImpl,
+    })
+  }
+
+  if (!updateExisting) {
+    return existingRelease
+  }
+
+  return updateRelease({
+    releaseUrl: existingRelease.url,
+    token,
+    releaseName,
+    targetCommitish,
+    body: releaseBody,
+    fetchImpl,
+  })
+}
+
+export async function publishGitHubRelease({
+  artifactsDir,
+  repository,
+  token,
+  tagName,
+  releaseName,
+  targetCommitish,
+  body,
+  syncReleaseMetadata = true,
+  apiBaseUrl = "https://api.github.com",
+  fetchImpl = fetch,
+}) {
+  const assets = await collectReleaseAssets(artifactsDir)
+  const releaseBody =
+    body ||
+    buildReleaseBody({
+      version: releaseName,
+      targetCommitish,
+      assetNames: assets.map((asset) => asset.name),
+    })
+
+  const release = await ensureGitHubRelease({
+    repository,
+    token,
+    tagName,
+    releaseName,
+    targetCommitish,
+    body: releaseBody,
+    updateExisting: syncReleaseMetadata,
+    apiBaseUrl,
+    fetchImpl,
+  })
 
   for (const asset of assets) {
     const existingAsset = Array.isArray(release.assets) ? release.assets.find((candidate) => candidate.name === asset.name) : null
@@ -113,6 +159,11 @@ export async function publishGitHubRelease({
       asset,
       fetchImpl,
     })
+
+    if (Array.isArray(release.assets)) {
+      release.assets = release.assets.filter((candidate) => candidate.name !== asset.name)
+      release.assets.push({ name: asset.name })
+    }
   }
 
   return {
@@ -260,11 +311,19 @@ async function main() {
         type: "string",
         default: "downloaded",
       },
+      "create-only": {
+        type: "boolean",
+        default: false,
+      },
       tag: {
         type: "string",
       },
       name: {
         type: "string",
+      },
+      "preserve-release-metadata": {
+        type: "boolean",
+        default: false,
       },
       "target-commitish": {
         type: "string",
@@ -289,6 +348,19 @@ async function main() {
     throw new Error("Missing target commitish. Set --target-commitish or GITHUB_SHA.")
   }
 
+  if (values["create-only"]) {
+    await ensureGitHubRelease({
+      repository,
+      token,
+      tagName: values.tag,
+      releaseName: values.name,
+      targetCommitish,
+    })
+
+    console.log(`Ensured release ${values.tag}`)
+    return
+  }
+
   const result = await publishGitHubRelease({
     artifactsDir: values["artifacts-dir"],
     repository,
@@ -296,6 +368,7 @@ async function main() {
     tagName: values.tag,
     releaseName: values.name,
     targetCommitish,
+    syncReleaseMetadata: !values["preserve-release-metadata"],
   })
 
   console.log(`Published release ${values.tag} with ${result.assets.length} asset(s)`)
