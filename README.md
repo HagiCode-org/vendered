@@ -8,7 +8,7 @@ This repository stores vendored build inputs and CI automation.
 - `packages/omniroute/upstream/` is a Git submodule pointing to `https://github.com/diegosouzapw/OmniRoute.git`.
 - `.github/workflows/code-server-artifacts.yaml` is the shared vendored pipeline. It resolves one vendored version/tag per run, then builds `code-server` and OmniRoute in parallel, validates both package families, and publishes one shared GitHub Release result.
 - `packages/code-server/scripts/build-artifacts.mjs` and `packages/code-server/scripts/verify-startup.mjs` are the Node entrypoints for the build and post-build verification flow.
-- `packages/omniroute/scripts/build-artifacts.mjs` and `packages/omniroute/scripts/verify-startup.mjs` are the OmniRoute package-local build and packaged-entry verification entrypoints.
+- `packages/omniroute/scripts/build-artifacts.mjs` and `packages/omniroute/scripts/verify-startup.mjs` are the OmniRoute package-local build and packaged-entry verification entrypoints. The OmniRoute verify step now performs a real `pm2`-managed startup smoke test against the packaged release and waits for `/api/monitoring/health` before publication.
 
 ## Release versioning
 

@@ -247,6 +247,9 @@ jobs:
           cache: npm
           cache-dependency-path: packages/omniroute/upstream/package-lock.json
 
+      - name: Install PM2
+        run: npm install --global pm2
+
       - name: Build artifacts
         run: node ./packages/omniroute/scripts/build-artifacts.mjs
 

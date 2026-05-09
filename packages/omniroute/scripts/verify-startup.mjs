@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 
+import http from "node:http"
+import net from "node:net"
 import { spawn } from "node:child_process"
-import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions, normalizeTargetPlatform, resolveReleasePath } from "./wrappers.mjs"
+import {
+  getManifestBinEntries,
+  getNativeSmokeWrapperFile,
+  getWrapperDefinitions,
+  normalizeTargetPlatform,
+  resolveReleasePath,
+} from "./wrappers.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -50,27 +58,16 @@ async function main() {
     const manifest = JSON.parse(await readFile(resolveReleasePath(releaseRoot, "package.json"), "utf8"))
     const binEntries = getManifestBinEntries(manifest)
     const targetPlatform = normalizeTargetPlatform(metadata.platform)
-    const runtimeEnv = {
-      ...process.env,
-      HOME: path.join(tempDirectory, "home"),
-      USERPROFILE: path.join(tempDirectory, "home"),
-      APPDATA: path.join(tempDirectory, "appdata"),
-      DATA_DIR: path.join(tempDirectory, "data"),
-      OMNIROUTE_MEMORY_MB: "256",
-    }
+    const runtimeEnv = await createRuntimeEnv(tempDirectory)
 
     await access(path.join(releaseRoot, "app", "server.js"))
     await assertPackagedEntrypoints(releaseRoot, binEntries)
     await assertWrapperFiles(releaseRoot, binEntries, targetPlatform)
 
-    const version = await runAndCapture(
-      process.execPath,
-      [getPackagedEntrypoint(metadata), "--version"],
-      {
-        cwd: releaseRoot,
-        env: runtimeEnv,
-      },
-    )
+    const version = await runAndCapture(process.execPath, [getPackagedEntrypoint(metadata), "--version"], {
+      cwd: releaseRoot,
+      env: runtimeEnv,
+    })
 
     if (version.trim() !== metadata.version) {
       throw new Error(`Packaged OmniRoute version mismatch: expected ${metadata.version}, received ${version.trim()}`)
@@ -83,10 +80,149 @@ async function main() {
       )
     }
 
-    console.log(`Verified OmniRoute package ${metadata.version}`)
+    await verifyPm2Startup(releaseRoot, runtimeEnv)
+
+    console.log(`Verified OmniRoute package ${metadata.version} with PM2 startup`)
   } finally {
     await rm(tempDirectory, { recursive: true, force: true })
   }
+}
+
+async function createRuntimeEnv(tempDirectory) {
+  const homeDir = path.join(tempDirectory, "home")
+  const appDataDir = path.join(tempDirectory, "appdata")
+  const localAppDataDir = path.join(tempDirectory, "localappdata")
+  const dataDir = path.join(tempDirectory, "data")
+  const pm2HomeDir = path.join(tempDirectory, "pm2-home")
+
+  await Promise.all([
+    mkdir(homeDir, { recursive: true }),
+    mkdir(appDataDir, { recursive: true }),
+    mkdir(localAppDataDir, { recursive: true }),
+    mkdir(dataDir, { recursive: true }),
+    mkdir(pm2HomeDir, { recursive: true }),
+  ])
+
+  return {
+    ...process.env,
+    HOME: homeDir,
+    USERPROFILE: homeDir,
+    APPDATA: appDataDir,
+    LOCALAPPDATA: localAppDataDir,
+    DATA_DIR: dataDir,
+    PM2_HOME: pm2HomeDir,
+    OMNIROUTE_MEMORY_MB: "256",
+  }
+}
+
+async function verifyPm2Startup(releaseRoot, env) {
+  const port = await getAvailablePort()
+  const processName = `vendored-omniroute-verify-${process.pid}-${Date.now()}`
+  const pm2Command = getPm2Command()
+  const entrypointPath = resolveReleasePath(releaseRoot, "bin/omniroute.mjs")
+
+  await ensurePm2Available(pm2Command, env)
+
+  try {
+    await run(pm2Command, [
+      "start",
+      entrypointPath,
+      "--name",
+      processName,
+      "--interpreter",
+      process.execPath,
+      "--",
+      "--port",
+      String(port),
+      "--no-open",
+    ], {
+      cwd: releaseRoot,
+      env,
+    })
+
+    await waitForOmniRouteHealth({ pm2Command, processName, port, env })
+  } finally {
+    await cleanupPm2(pm2Command, processName, env)
+  }
+}
+
+async function ensurePm2Available(pm2Command, env) {
+  try {
+    await runAndCapture(pm2Command, ["--version"], { env })
+  } catch (error) {
+    throw new Error(
+      `pm2 is required for OmniRoute verification but was not available via ${pm2Command}: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+async function waitForOmniRouteHealth({ pm2Command, processName, port, env }) {
+  const deadline = Date.now() + 90_000
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await requestHealth(port)
+      if (response.statusCode === 200) {
+        return
+      }
+    } catch {
+      // Retry until the deadline expires.
+    }
+
+    const status = await readPm2Status(pm2Command, processName, env)
+    if (status === "errored" || status === "stopped" || status === "stopping") {
+      const diagnostics = await readPm2Diagnostics(pm2Command, processName, env)
+      throw new Error(`OmniRoute entered PM2 status ${status} before becoming healthy.\n${diagnostics}`)
+    }
+
+    await delay(1000)
+  }
+
+  const diagnostics = await readPm2Diagnostics(pm2Command, processName, env)
+  throw new Error(`Timed out waiting for OmniRoute health endpoint on port ${port}.\n${diagnostics}`)
+}
+
+async function readPm2Status(pm2Command, processName, env) {
+  try {
+    const output = await runAndCapture(pm2Command, ["jlist"], { env })
+    const processes = JSON.parse(output)
+    const processInfo = Array.isArray(processes)
+      ? processes.find((entry) => entry?.name === processName)
+      : null
+
+    return typeof processInfo?.pm2_env?.status === "string" ? processInfo.pm2_env.status : null
+  } catch {
+    return null
+  }
+}
+
+async function readPm2Diagnostics(pm2Command, processName, env) {
+  const diagnostics = []
+
+  try {
+    diagnostics.push("pm2 describe:")
+    diagnostics.push((await runAndCapture(pm2Command, ["describe", processName], { env })).trim())
+  } catch (error) {
+    diagnostics.push(`pm2 describe failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  try {
+    diagnostics.push("pm2 logs:")
+    diagnostics.push((await runAndCapture(pm2Command, ["logs", processName, "--lines", "200", "--nostream"], { env })).trim())
+  } catch (error) {
+    diagnostics.push(`pm2 logs failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  return diagnostics.filter(Boolean).join("\n")
+}
+
+async function cleanupPm2(pm2Command, processName, env) {
+  await Promise.allSettled([
+    run(pm2Command, ["delete", processName], { env }),
+  ])
+  await Promise.allSettled([
+    run(pm2Command, ["kill"], { env }),
+  ])
 }
 
 async function extractArchive(archivePath, destinationDir) {
@@ -154,6 +290,10 @@ function getPackagedEntrypoint(metadata) {
     : path.join("bin", "omniroute.mjs")
 }
 
+function getPm2Command(hostPlatform = process.platform) {
+  return hostPlatform === "win32" ? "pm2.cmd" : "pm2"
+}
+
 async function findFile(rootDir, predicate) {
   const entries = await readdir(rootDir, { withFileTypes: true })
 
@@ -183,15 +323,64 @@ async function exists(targetPath) {
   }
 }
 
-export function resolveSpawnInvocation(command, args, hostPlatform = process.platform) {
-  if (hostPlatform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+function requestHealth(port) {
+  return new Promise((resolve, reject) => {
+    const request = http.get(
+      { host: "127.0.0.1", port, path: "/api/monitoring/health" },
+      (response) => {
+        response.resume()
+        resolve(response)
+      },
+    )
+    request.on("error", reject)
+  })
+}
+
+function getAvailablePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.unref()
+    server.on("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      if (!address || typeof address === "string") {
+        server.close(() => reject(new Error("Failed to resolve a free port")))
+        return
+      }
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+        resolve(address.port)
+      })
+    })
+  })
+}
+
+function delay(timeoutMs) {
+  return new Promise((resolve) => setTimeout(resolve, timeoutMs))
+}
+
+function resolveSpawnInvocation(command, args, hostPlatform = process.platform) {
+  const resolvedCommand = resolveCommand(command, hostPlatform)
+
+  if (hostPlatform === "win32" && /\.(cmd|bat)$/i.test(resolvedCommand)) {
     return {
       command: process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe",
-      args: ["/d", "/s", "/c", command, ...args],
+      args: ["/d", "/s", "/c", resolvedCommand, ...args],
     }
   }
 
-  return { command, args }
+  return { command: resolvedCommand, args }
+}
+
+function resolveCommand(command, hostPlatform = process.platform) {
+  if (hostPlatform === "win32" && !path.extname(command) && ["npm", "npx", "pm2"].includes(command)) {
+    return `${command}.cmd`
+  }
+
+  return command
 }
 
 function run(command, args, options = {}) {
@@ -222,21 +411,28 @@ function runAndCapture(command, args, options = {}) {
     const child = spawn(invocation.command, invocation.args, {
       cwd: options.cwd || root,
       env: options.env || process.env,
-      stdio: ["ignore", "pipe", "inherit"],
+      stdio: ["ignore", "pipe", "pipe"],
     })
 
-    let output = ""
+    let stdout = ""
+    let stderr = ""
+
     child.stdout.on("data", (chunk) => {
-      output += chunk.toString()
+      stdout += chunk.toString()
+    })
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString()
     })
 
     child.on("error", reject)
     child.on("exit", (code) => {
       if (code === 0) {
-        resolve(output)
+        resolve(stdout)
         return
       }
-      reject(new Error(`${invocation.command} ${invocation.args.join(" ")} exited with code ${code}`))
+
+      const stderrSummary = stderr.trim().length > 0 ? `\nstderr:\n${stderr.trim()}` : ""
+      reject(new Error(`${invocation.command} ${invocation.args.join(" ")} exited with code ${code}${stderrSummary}`))
     })
   })
 }
@@ -248,3 +444,5 @@ function escapePowerShell(value) {
 function isMainModule() {
   return process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href
 }
+
+export { getPm2Command, resolveSpawnInvocation }
