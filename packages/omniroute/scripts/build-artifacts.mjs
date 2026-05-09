@@ -46,6 +46,7 @@ async function main() {
   }
 
   await patchPrepublishScript()
+  await patchResponsesWsProxyScript()
 
   await run("npm", ["ci", "--no-audit", "--no-fund"], {
     cwd: upstreamRoot,
@@ -279,10 +280,31 @@ function runCommand(command: string, args: string[], options: Parameters<typeof 
   return nextScript
 }
 
+export function patchResponsesWsProxySource(script) {
+  const nextScript = script
+    .replace(
+      'import { websocket } from "wreq-js";',
+      'import { createRequire } from "node:module";\n\nconst require = createRequire(import.meta.url);\n\nexport function loadDefaultWsFactory(requireFn = require) {\n  const module = requireFn("wreq-js");\n  const wsFactory =\n    typeof module?.websocket === "function"\n      ? module.websocket\n      : typeof module?.default?.websocket === "function"\n        ? module.default.websocket\n        : typeof module?.default === "function"\n          ? module.default\n          : null;\n\n  if (!wsFactory) {\n    throw new Error("wreq-js did not expose a websocket() factory");\n  }\n\n  return wsFactory;\n}',
+    )
+    .replace('  wsFactory = websocket,', '  wsFactory = loadDefaultWsFactory(),')
+
+  return nextScript
+}
+
 async function patchPrepublishScript() {
   const scriptPath = path.join(upstreamRoot, "scripts", "prepublish.ts")
   const script = await readFile(scriptPath, "utf8")
   const nextScript = patchPrepublishScriptSource(script)
+
+  if (nextScript !== script) {
+    await writeFile(scriptPath, nextScript)
+  }
+}
+
+async function patchResponsesWsProxyScript() {
+  const scriptPath = path.join(upstreamRoot, "scripts", "responses-ws-proxy.mjs")
+  const script = await readFile(scriptPath, "utf8")
+  const nextScript = patchResponsesWsProxySource(script)
 
   if (nextScript !== script) {
     await writeFile(scriptPath, nextScript)

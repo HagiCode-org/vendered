@@ -4,7 +4,7 @@ import { access, mkdtemp, readFile, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { createMetadataPayload, patchPrepublishScriptSource, writePlatformWrappers } from "./build-artifacts.mjs"
+import { createMetadataPayload, patchPrepublishScriptSource, patchResponsesWsProxySource, writePlatformWrappers } from "./build-artifacts.mjs"
 import { buildBlobKey } from "../../../scripts/publication.mjs"
 import { WINDOWS_WRAPPER_EXTENSIONS, getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions } from "./wrappers.mjs"
 
@@ -182,4 +182,24 @@ execFileSync(NPX_BIN, ["next", "build"], { cwd: ROOT, stdio: "inherit" });`;
   assert.equal(windowsPatched.includes('runCommand(NPM_BIN,'), true)
   assert.equal(windowsPatched.includes('runCommand(NPX_BIN,'), true)
   assert.equal(windowsPatched.includes('cpSync(responsesWsProxySrc, join(APP_DIR, "responses-ws-proxy.mjs"));'), true)
+})
+
+test("patchResponsesWsProxySource switches wreq-js loading to CommonJS fallback", () => {
+  const fixture = String.raw`import { createHash, randomUUID } from "node:crypto";
+import { STATUS_CODES } from "node:http";
+import { websocket } from "wreq-js";
+
+export function createResponsesWsProxy({
+  wsFactory = websocket,
+} = {}) {
+  return { wsFactory };
+}`
+
+  const patched = patchResponsesWsProxySource(fixture)
+
+  assert.equal(patched.includes('import { websocket } from "wreq-js";'), false)
+  assert.equal(patched.includes('import { createRequire } from "node:module";'), true)
+  assert.equal(patched.includes('const require = createRequire(import.meta.url);'), true)
+  assert.equal(patched.includes('const module = requireFn("wreq-js");'), true)
+  assert.equal(patched.includes('wsFactory = loadDefaultWsFactory(),'), true)
 })
