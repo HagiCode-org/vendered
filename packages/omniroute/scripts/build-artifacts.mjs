@@ -224,6 +224,35 @@ export function renderPackagedReadme({ version, upstreamVersion, sourceRevision,
           "```",
         ].join("\n")
 
+  const entrypointSection =
+    targetPlatform === "windows"
+      ? [
+          "## Entrypoints",
+          "",
+          "Use these entrypoints in the extracted archive:",
+          "",
+          "- Recommended startup entrypoint: `.\\omniroute.cmd`",
+          "- Recommended maintenance entrypoint: `.\\omniroute-reset-password.cmd`",
+          "- Direct Node CLI entrypoint: `node .\\bin\\omniroute.mjs`",
+          "- Direct Node maintenance entrypoint: `node .\\bin\\reset-password.mjs`",
+          "- Internal runtime entrypoints managed by the CLI: `app/server.js` and, when present, `app/server-ws.mjs`",
+          "- Do not start the packaged archive from `scripts/*.mjs`; those files are support scripts, not the supported runtime entrypoints for the vendored release.",
+          "",
+        ].join("\n")
+      : [
+          "## Entrypoints",
+          "",
+          "Use these entrypoints in the extracted archive:",
+          "",
+          "- Recommended startup entrypoint: `./omniroute.sh`",
+          "- Recommended maintenance entrypoint: `./omniroute-reset-password.sh`",
+          "- Direct Node CLI entrypoint: `node ./bin/omniroute.mjs`",
+          "- Direct Node maintenance entrypoint: `node ./bin/reset-password.mjs`",
+          "- Internal runtime entrypoints managed by the CLI: `app/server.js` and, when present, `app/server-ws.mjs`",
+          "- Do not start the packaged archive from `scripts/*.mjs`; those files are support scripts, not the supported runtime entrypoints for the vendored release.",
+          "",
+        ].join("\n")
+
   return [
     "# omniroute",
     "",
@@ -237,6 +266,7 @@ export function renderPackagedReadme({ version, upstreamVersion, sourceRevision,
     "",
     usageBlock,
     "",
+    entrypointSection,
     "## Dependencies",
     "",
     "- Run this vendored build with Node.js 22. The archive includes `.node-version` with `22`.",
@@ -361,7 +391,7 @@ export function patchResponsesWsProxySource(script) {
   const nextScript = script
     .replace(
       'import { websocket } from "wreq-js";',
-      'import { createRequire } from "node:module";\n\nconst require = createRequire(import.meta.url);\n\nexport function loadDefaultWsFactory(requireFn = require) {\n  const module = requireFn("wreq-js");\n  const wsFactory =\n    typeof module?.websocket === "function"\n      ? module.websocket\n      : typeof module?.default?.websocket === "function"\n        ? module.default.websocket\n        : typeof module?.default === "function"\n          ? module.default\n          : null;\n\n  if (!wsFactory) {\n    throw new Error("wreq-js did not expose a websocket() factory");\n  }\n\n  return wsFactory;\n}',
+      'import { createRequire } from "node:module";\n\nconst require = createRequire(import.meta.url);\nconst appRequire = createRequire(new URL("../app/package.json", import.meta.url));\n\nfunction resolveWsFactory(module) {\n  return typeof module?.websocket === "function"\n    ? module.websocket\n    : typeof module?.default?.websocket === "function"\n      ? module.default.websocket\n      : typeof module?.default === "function"\n        ? module.default\n        : null;\n}\n\nexport function loadDefaultWsFactory(requireFns = [require, appRequire]) {\n  const errors = [];\n\n  for (const requireFn of requireFns) {\n    try {\n      const module = requireFn("wreq-js");\n      const wsFactory = resolveWsFactory(module);\n\n      if (wsFactory) {\n        return wsFactory;\n      }\n\n      errors.push(new Error("wreq-js did not expose a websocket() factory"));\n    } catch (error) {\n      errors.push(error);\n    }\n  }\n\n  throw new AggregateError(errors, "Unable to load wreq-js from the OmniRoute runtime");\n}',
     )
     .replace('  wsFactory = websocket,', '  wsFactory = loadDefaultWsFactory(),')
 

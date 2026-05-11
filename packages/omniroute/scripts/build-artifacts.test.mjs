@@ -1,8 +1,9 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { access, mkdtemp, readFile, stat, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { createMetadataPayload, patchPrepublishScriptSource, patchResponsesWsProxySource, renderPackagedReadme, writePackagedReadme, writePlatformWrappers } from "./build-artifacts.mjs"
 import { buildBlobKey } from "../../../scripts/publication.mjs"
@@ -200,8 +201,44 @@ export function createResponsesWsProxy({
   assert.equal(patched.includes('import { websocket } from "wreq-js";'), false)
   assert.equal(patched.includes('import { createRequire } from "node:module";'), true)
   assert.equal(patched.includes('const require = createRequire(import.meta.url);'), true)
+  assert.equal(
+    patched.includes('const appRequire = createRequire(new URL("../app/package.json", import.meta.url));'),
+    true,
+  )
   assert.equal(patched.includes('const module = requireFn("wreq-js");'), true)
+  assert.equal(patched.includes('throw new AggregateError(errors, "Unable to load wreq-js from the OmniRoute runtime");'), true)
   assert.equal(patched.includes('wsFactory = loadDefaultWsFactory(),'), true)
+})
+
+test("patchResponsesWsProxySource resolves wreq-js from app runtime when root node_modules is absent", async () => {
+  const fixture = String.raw`import { createHash, randomUUID } from "node:crypto";
+import { STATUS_CODES } from "node:http";
+import { websocket } from "wreq-js";
+
+export function createResponsesWsProxy({
+  wsFactory = websocket,
+} = {}) {
+  return { wsFactory };
+}`
+
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "omniroute-wreq-runtime-"))
+  const scriptPath = path.join(tempRoot, "scripts", "responses-ws-proxy.mjs")
+  const appPackagePath = path.join(tempRoot, "app", "package.json")
+  const wreqPackagePath = path.join(tempRoot, "app", "node_modules", "wreq-js", "package.json")
+  const wreqEntrypointPath = path.join(tempRoot, "app", "node_modules", "wreq-js", "index.js")
+
+  await mkdir(path.dirname(scriptPath), { recursive: true })
+  await mkdir(path.dirname(appPackagePath), { recursive: true })
+  await mkdir(path.dirname(wreqPackagePath), { recursive: true })
+  await writeFile(scriptPath, patchResponsesWsProxySource(fixture))
+  await writeFile(appPackagePath, '{"name":"omniroute-app"}\n')
+  await writeFile(wreqPackagePath, '{"name":"wreq-js","main":"index.js"}\n')
+  await writeFile(wreqEntrypointPath, 'module.exports = { websocket: () => "resolved-from-app" };\n')
+
+  const module = await import(pathToFileURL(scriptPath).href)
+
+  assert.equal(module.loadDefaultWsFactory()(), "resolved-from-app")
+  assert.equal(module.createResponsesWsProxy().wsFactory(), "resolved-from-app")
 })
 
 
@@ -215,6 +252,11 @@ test("renderPackagedReadme emits OmniRoute usage, dependency, and version detail
   })
 
   assert.match(readme, /\.\\omniroute\.cmd --help/)
+  assert.match(readme, /## Entrypoints/)
+  assert.match(readme, /Recommended startup entrypoint: `\.\\omniroute\.cmd`/)
+  assert.match(readme, /Direct Node maintenance entrypoint: `node \.\\bin\\reset-password\.mjs`/)
+  assert.match(readme, /Internal runtime entrypoints managed by the CLI: `app\/server\.js` and, when present, `app\/server-ws\.mjs`/)
+  assert.match(readme, /Do not start the packaged archive from `scripts\/\*\.mjs`/)
   assert.match(readme, /\.node-version/)
   assert.match(readme, /Upstream version: `3\.7\.9`/)
   assert.match(readme, /Packaged CLI entrypoint: `bin\/omniroute\.mjs`/)
@@ -236,4 +278,6 @@ test("writePackagedReadme preserves the upstream OmniRoute README before overwri
   const packagedReadme = await readFile(path.join(releaseRoot, "README.md"), "utf8")
   assert.match(packagedReadme, /# omniroute/)
   assert.match(packagedReadme, /\.\/omniroute\.sh --help/)
+  assert.match(packagedReadme, /Recommended startup entrypoint: `\.\/omniroute\.sh`/)
+  assert.match(packagedReadme, /Direct Node maintenance entrypoint: `node \.\/bin\/reset-password\.mjs`/)
 })
