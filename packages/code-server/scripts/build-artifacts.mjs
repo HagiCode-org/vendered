@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
-import { access, chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { access, chmod, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -18,6 +18,7 @@ const artifactsDir = path.join(root, process.env.ARTIFACTS_OUTPUT_DIR || path.jo
 const packageId = "code-server"
 const platform = normalizePlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
 const arch = normalizeArch(process.env.ARCH || process.arch)
+const upstreamArch = normalizeUpstreamArch(process.env.ARCH || process.arch)
 
 if (isMainModule()) {
   main().catch((error) => {
@@ -40,10 +41,24 @@ async function main() {
 
   await runBuildPipeline(version)
   await slimRelease()
+  await copyPackageTemplates(releaseDir)
   await writePackagedReadme(releaseDir, { version, sourceRevision, targetPlatform: platform, targetArch: arch })
 
   const artifacts = await collectArtifacts(version)
   await writeMetadata(version, sourceRevision, artifacts)
+}
+
+export async function copyPackageTemplates(releaseRoot) {
+  const templatesRoot = path.join(packageRoot, "templates")
+  if (!(await exists(templatesRoot))) {
+    return false
+  }
+
+  await cp(templatesRoot, path.join(releaseRoot, "templates"), {
+    recursive: true,
+    force: true,
+  })
+  return true
 }
 
 async function runBuildPipeline(version) {
@@ -52,6 +67,8 @@ async function runBuildPipeline(version) {
     VERSION: process.env.VERSION || version,
     npm_config_build_from_source: process.env.npm_config_build_from_source || "true",
   })
+
+  await patchBuildVscodeScript()
 
   if (platform === "linux") {
     await runBash(
@@ -121,6 +138,21 @@ async function patchWindowsBuildVscodeScript() {
   }
 
   await writeFile(scriptPath, script.replace(needle, `$1${guard}`))
+}
+
+export async function patchBuildVscodeScript(scriptPath = path.join(codeServerRoot, "ci", "build", "build-vscode.sh")) {
+  const script = await readFile(scriptPath, "utf8")
+  const patchedScript = script.replace(
+    "VSCODE_QUALITY=stable npm run gulp compile-copilot-extension-full-build",
+    "VSCODE_QUALITY=stable npm run gulp compile-copilot-extension-build",
+  )
+
+  if (patchedScript === script) {
+    return false
+  }
+
+  await writeFile(scriptPath, patchedScript)
+  return true
 }
 
 async function slimRelease() {
@@ -325,6 +357,9 @@ function withCodeServerEnv(env) {
     ...env,
     OS: platform,
     ARCH: arch,
+    VSCODE_ARCH: env.VSCODE_ARCH || upstreamArch,
+    npm_config_arch: env.npm_config_arch || upstreamArch,
+    NPM_CONFIG_ARCH: env.NPM_CONFIG_ARCH || upstreamArch,
     NPM_CONFIG_SCRIPT_SHELL: platform === "windows" ? scriptShell : env.NPM_CONFIG_SCRIPT_SHELL,
     npm_config_script_shell: platform === "windows" ? scriptShell : env.npm_config_script_shell,
   }
@@ -350,6 +385,19 @@ function normalizeArch(value) {
       return "amd64"
     case "aarch64":
       return "arm64"
+    default:
+      return value
+  }
+}
+
+function normalizeUpstreamArch(value) {
+  switch (value) {
+    case "amd64":
+      return "x64"
+    case "aarch64":
+      return "arm64"
+    case "armhf":
+      return "arm"
     default:
       return value
   }
@@ -384,7 +432,7 @@ function getMsys2Command() {
 }
 
 function getQuiltPushCommand() {
-  return "quilt push -a"
+  return "quilt push -a || [[ $? -eq 2 ]]"
 }
 
 function runBash(script, options = {}) {

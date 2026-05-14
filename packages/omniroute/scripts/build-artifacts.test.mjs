@@ -5,7 +5,7 @@ import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createMetadataPayload, patchPrepublishScriptSource, patchResponsesWsProxySource, renderPackagedReadme, writePackagedReadme, writePlatformWrappers } from "./build-artifacts.mjs"
+import { copyPackageTemplates, createMetadataPayload, patchPrepublishScriptSource, patchResponsesWsProxySource, renderPackagedReadme, writePackagedReadme, writePlatformWrappers } from "./build-artifacts.mjs"
 import { buildBlobKey } from "../../../scripts/publication.mjs"
 import { WINDOWS_WRAPPER_EXTENSIONS, getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions } from "./wrappers.mjs"
 
@@ -151,6 +151,15 @@ test("writePlatformWrappers emits executable Unix shell wrappers", async () => {
 
   assert.match(wrapperContents, /exec node "\$SCRIPT_DIR\/bin\/omniroute\.mjs" "\$@"/)
   assert.equal(wrapperStats.mode & 0o111, 0o111)
+})
+
+test("copyPackageTemplates stages vendored templates into the release root", async () => {
+  const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "omniroute-release-templates-"))
+
+  const copied = await copyPackageTemplates(releaseRoot)
+
+  assert.equal(copied, true)
+  await access(path.join(releaseRoot, "templates", "omniroute-config.yaml"))
 })
 
 

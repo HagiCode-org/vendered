@@ -5,7 +5,7 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
-import { access, mkdtemp, rm } from "node:fs/promises"
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -30,6 +30,21 @@ async function main() {
   const port = await getAvailablePort()
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "code-server-user-data-"))
   const extensionsDir = await mkdtemp(path.join(os.tmpdir(), "code-server-extensions-"))
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "code-server-config-"))
+  const configPath = path.join(configDir, "config.yaml")
+
+  await writeFile(
+    configPath,
+    [
+      `bind-addr: 127.0.0.1:${port}`,
+      "auth: none",
+      `user-data-dir: ${JSON.stringify(userDataDir)}`,
+      `extensions-dir: ${JSON.stringify(extensionsDir)}`,
+      "disable-telemetry: true",
+      "disable-update-check: true",
+    ].join("\n") + "\n",
+    "utf8",
+  )
 
   let child
   let exited = false
@@ -37,16 +52,10 @@ async function main() {
   try {
     child = spawn(getNodeCommand(), [
       entryPath,
-      "--bind-addr",
-      `127.0.0.1:${port}`,
-      "--auth",
-      "none",
+      "--config",
+      configPath,
       "--disable-telemetry",
       "--disable-update-check",
-      "--user-data-dir",
-      userDataDir,
-      "--extensions-dir",
-      extensionsDir,
     ], {
       cwd: runtimeRoot,
       env: {
@@ -87,7 +96,11 @@ async function main() {
         child.kill("SIGKILL")
       }
     }
-    await Promise.allSettled([rm(userDataDir, { recursive: true, force: true }), rm(extensionsDir, { recursive: true, force: true })])
+    await Promise.allSettled([
+      rm(userDataDir, { recursive: true, force: true }),
+      rm(extensionsDir, { recursive: true, force: true }),
+      rm(configDir, { recursive: true, force: true }),
+    ])
   }
 }
 

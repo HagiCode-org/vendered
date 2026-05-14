@@ -3,7 +3,7 @@
 import http from "node:http"
 import net from "node:net"
 import { spawn } from "node:child_process"
-import { access, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -94,14 +94,23 @@ async function createRuntimeEnv(tempDirectory) {
   const localAppDataDir = path.join(tempDirectory, "localappdata")
   const dataDir = path.join(tempDirectory, "data")
   const pm2HomeDir = path.join(tempDirectory, "pm2-home")
+  const logsDir = path.join(tempDirectory, "logs")
+  const configPath = path.join(tempDirectory, "omniroute-config.yaml")
 
   await Promise.all([
     mkdir(homeDir, { recursive: true }),
     mkdir(appDataDir, { recursive: true }),
     mkdir(localAppDataDir, { recursive: true }),
     mkdir(dataDir, { recursive: true }),
+    mkdir(logsDir, { recursive: true }),
     mkdir(pm2HomeDir, { recursive: true }),
   ])
+
+  await writeFile(
+    configPath,
+    `runtimeHome: ${JSON.stringify(path.join(tempDirectory, "runtime-home"))}\nlisten: \"127.0.0.1:39001\"\ndataDir: ${JSON.stringify(dataDir)}\nlogDir: ${JSON.stringify(logsDir)}\n`,
+    "utf8",
+  )
 
   return {
     ...process.env,
@@ -110,6 +119,8 @@ async function createRuntimeEnv(tempDirectory) {
     APPDATA: appDataDir,
     LOCALAPPDATA: localAppDataDir,
     DATA_DIR: dataDir,
+    LOG_DIR: logsDir,
+    OMNIROUTE_CONFIG_PATH: configPath,
     PM2_HOME: pm2HomeDir,
     OMNIROUTE_MEMORY_MB: "256",
   }
@@ -120,6 +131,7 @@ async function verifyPm2Startup(releaseRoot, env) {
   const processName = `vendored-omniroute-verify-${process.pid}-${Date.now()}`
   const pm2Command = getPm2Command()
   const entrypointPath = resolveReleasePath(releaseRoot, "bin/omniroute.mjs")
+  const configPath = env.OMNIROUTE_CONFIG_PATH
 
   await ensurePm2Available(pm2Command, env)
 
@@ -132,6 +144,8 @@ async function verifyPm2Startup(releaseRoot, env) {
       "--interpreter",
       process.execPath,
       "--",
+      "--config",
+      configPath,
       "--port",
       String(port),
       "--no-open",

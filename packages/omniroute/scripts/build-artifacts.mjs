@@ -97,11 +97,25 @@ async function stageReleaseTree({ version, upstreamVersion, sourceRevision }) {
   await writeFile(path.join(releaseRoot, ".node-version"), "22\n")
 
   await access(path.join(releaseRoot, "app", "server.js"))
+  await copyPackageTemplates(releaseRoot)
   await assertPackagedEntrypoints(releaseRoot, binEntries)
   await writePlatformWrappers(releaseRoot, binEntries, platform)
   await writePackagedReadme(releaseRoot, { version, upstreamVersion, sourceRevision, targetPlatform: platform, targetArch: arch })
 
   return releaseRoot
+}
+
+export async function copyPackageTemplates(releaseRoot) {
+  const templatesRoot = path.join(packageRoot, "templates")
+  if (!(await exists(templatesRoot))) {
+    return false
+  }
+
+  await cp(templatesRoot, path.join(releaseRoot, "templates"), {
+    recursive: true,
+    force: true,
+  })
+  return true
 }
 
 async function createArchive(version, releaseRoot) {
