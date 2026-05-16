@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
-import { access, chmod, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { access, chmod, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -93,11 +93,21 @@ async function runBuildPipeline(version) {
   if (platform === "windows") {
     await applyPatchesWithPatch(baseEnv)
     await patchWindowsBuildVscodeScript()
+    await runBash("npm ci && npm run build && npm run build:vscode", {
+      cwd: codeServerRoot,
+      env: baseEnv,
+    })
+    await pruneWindowsNativeArtifacts()
+    await runBash("KEEP_MODULES=1 npm run release", {
+      cwd: codeServerRoot,
+      env: baseEnv,
+    })
+    return
   }
 
   await runBash(
     [
-      platform === "windows" ? ":" : getQuiltPushCommand(),
+      getQuiltPushCommand(),
       "npm ci",
       "npm run build",
       "npm run build:vscode",
@@ -140,6 +150,39 @@ async function patchWindowsBuildVscodeScript() {
   await writeFile(scriptPath, script.replace(needle, `$1${guard}`))
 }
 
+export async function pruneWindowsNativeArtifacts(
+  runtimeRoot = path.join(codeServerRoot, `lib/vscode-reh-web-win32-${upstreamArch}`),
+) {
+  const audioCaptureRoot = path.join(
+    runtimeRoot,
+    "extensions",
+    "copilot",
+    "node_modules",
+    "@anthropic-ai",
+    "claude-agent-sdk",
+    "vendor",
+    "audio-capture",
+  )
+
+  if (!(await exists(audioCaptureRoot))) {
+    return false
+  }
+
+  const entries = await readdir(audioCaptureRoot)
+  let removedAny = false
+
+  for (const entry of entries) {
+    if (shouldKeepWindowsNativeArtifact(entry)) {
+      continue
+    }
+
+    await rm(path.join(audioCaptureRoot, entry), { recursive: true, force: true })
+    removedAny = true
+  }
+
+  return removedAny
+}
+
 export async function patchBuildVscodeScript(scriptPath = path.join(codeServerRoot, "ci", "build", "build-vscode.sh")) {
   const script = await readFile(scriptPath, "utf8")
   const patchedScript = script.replace(
@@ -153,6 +196,10 @@ export async function patchBuildVscodeScript(scriptPath = path.join(codeServerRo
 
   await writeFile(scriptPath, patchedScript)
   return true
+}
+
+export function shouldKeepWindowsNativeArtifact(entryName) {
+  return /(^|[-_])(win32|windows|win)([-_]|$)/i.test(entryName)
 }
 
 async function slimRelease() {
@@ -452,6 +499,7 @@ async function exists(targetPath) {
     return false
   }
 }
+
 
 function toPosixPath(value) {
   return value.replaceAll("\\", "/")

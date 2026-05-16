@@ -149,16 +149,23 @@ test("writePlatformWrappers emits cross-platform wrappers for every command", as
 
   const cmdWrapper = await readFile(path.join(releaseRoot, "omniroute-reset-password.cmd"), "utf8")
   assert.match(cmdWrapper, /set "SCRIPT_DIR=%~dp0"/)
-  assert.match(cmdWrapper, /%SCRIPT_DIR%bin\\reset-password\.mjs/)
+  assert.match(cmdWrapper, /%SCRIPT_DIR%\.vendored\\commands\\omniroute-reset-password\.mjs/)
   assert.doesNotMatch(cmdWrapper, new RegExp(releaseRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
 
   const ps1Wrapper = await readFile(path.join(releaseRoot, "omniroute.ps1"), "utf8")
   assert.match(ps1Wrapper, /\$scriptDir = \$PSScriptRoot/)
-  assert.match(ps1Wrapper, /\$target = Join-Path \$scriptDir 'bin\\omniroute\.mjs'/)
+  assert.match(ps1Wrapper, /\$target = Join-Path \$scriptDir '\.vendored\\commands\\omniroute\.mjs'/)
   assert.doesNotMatch(ps1Wrapper, /Split-Path -LiteralPath/)
 
   const shellWrapper = await readFile(path.join(releaseRoot, "omniroute.sh"), "utf8")
-  assert.match(shellWrapper, /exec node "\$SCRIPT_DIR\/bin\/omniroute\.mjs" "\$@"/)
+  assert.match(shellWrapper, /exec node "\$SCRIPT_DIR\/\.vendored\/commands\/omniroute\.mjs" "\$@"/)
+
+  const launcherRuntime = await readFile(path.join(releaseRoot, ".vendored", "launcher-runtime.mjs"), "utf8")
+  assert.match(launcherRuntime, /translateOmniRouteInvocation/)
+
+  const launcherShim = await readFile(path.join(releaseRoot, ".vendored", "commands", "omniroute.mjs"), "utf8")
+  assert.match(launcherShim, /const invocation = translateOmniRouteInvocation\(process\.argv\.slice\(2\), process\.env\)/)
+  assert.match(launcherShim, /path\.join\(releaseRoot, "bin", "omniroute\.mjs"\)/)
 })
 
 test("writePlatformWrappers emits executable Unix shell wrappers", async () => {
@@ -176,7 +183,7 @@ test("writePlatformWrappers emits executable Unix shell wrappers", async () => {
   const wrapperContents = await readFile(wrapperPath, "utf8")
   const wrapperStats = await stat(wrapperPath)
 
-  assert.match(wrapperContents, /exec node "\$SCRIPT_DIR\/bin\/omniroute\.mjs" "\$@"/)
+  assert.match(wrapperContents, /exec node "\$SCRIPT_DIR\/\.vendored\/commands\/omniroute\.mjs" "\$@"/)
   assert.equal(wrapperStats.mode & 0o111, 0o111)
 })
 

@@ -20,6 +20,7 @@ const windowsHomeRoot = path.join(root, ".tmp", "omniroute-windows-home")
 const packageId = "omniroute"
 const platform = normalizeTargetPlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
 const arch = normalizeArch(process.env.ARCH || process.arch)
+const vendoredLauncherRuntimeSourcePath = fileURLToPath(new URL("./launcher-runtime.mjs", import.meta.url))
 
 if (isMainModule()) {
   main().catch((error) => {
@@ -382,7 +383,10 @@ async function assertPackagedEntrypoints(releaseRoot, binEntries) {
 }
 
 export async function writePlatformWrappers(releaseRoot, binEntries) {
-  const wrapperDefinitions = getCrossPlatformWrapperDefinitions(binEntries)
+  const shimEntries = getVendoredLauncherEntries(binEntries)
+  await stageVendoredLauncherRuntime(releaseRoot)
+  await writeVendoredCommandShims(releaseRoot, binEntries, shimEntries)
+  const wrapperDefinitions = getCrossPlatformWrapperDefinitions(shimEntries)
 
   for (const wrapperDefinition of wrapperDefinitions) {
     const wrapperPath = resolveReleasePath(releaseRoot, wrapperDefinition.fileName)
@@ -392,6 +396,63 @@ export async function writePlatformWrappers(releaseRoot, binEntries) {
       await chmod(wrapperPath, 0o755)
     }
   }
+}
+
+async function stageVendoredLauncherRuntime(releaseRoot) {
+  const destinationPath = resolveReleasePath(releaseRoot, ".vendored/launcher-runtime.mjs")
+  await mkdir(path.dirname(destinationPath), { recursive: true })
+  await writeFile(destinationPath, await readFile(vendoredLauncherRuntimeSourcePath, "utf8"))
+}
+
+async function writeVendoredCommandShims(releaseRoot, binEntries, shimEntries) {
+  for (const [index, binEntry] of binEntries.entries()) {
+    const shimEntry = shimEntries[index]
+    const shimPath = resolveReleasePath(releaseRoot, shimEntry.entryPath)
+    await mkdir(path.dirname(shimPath), { recursive: true })
+    await writeFile(shimPath, renderVendoredCommandShim(binEntry.entryPath))
+  }
+}
+
+function getVendoredLauncherEntries(binEntries) {
+  return binEntries.map((binEntry) => ({
+    ...binEntry,
+    entryPath: `.vendored/commands/${binEntry.command}.mjs`,
+  }))
+}
+
+function renderVendoredCommandShim(entryPath) {
+  const pathSegments = entryPath.split("/")
+  return `#!/usr/bin/env node
+import { spawn } from "node:child_process"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+import { translateOmniRouteInvocation } from "../launcher-runtime.mjs"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const releaseRoot = path.resolve(__dirname, "..", "..")
+const entrypoint = path.join(releaseRoot, ${pathSegments.map((segment) => JSON.stringify(segment)).join(", ")})
+const invocation = translateOmniRouteInvocation(process.argv.slice(2), process.env)
+const child = spawn(process.execPath, [entrypoint, ...invocation.args], {
+  env: invocation.env,
+  stdio: "inherit",
+})
+
+child.on("error", (error) => {
+  console.error(error instanceof Error ? error.stack || error.message : String(error))
+  process.exitCode = 1
+})
+
+child.on("exit", (code, signal) => {
+  if (signal) {
+    process.kill(process.pid, signal)
+    return
+  }
+
+  process.exitCode = code ?? 1
+})
+`
 }
 
 async function ensureWindowsBuildHomes() {

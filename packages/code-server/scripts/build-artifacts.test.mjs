@@ -4,7 +4,14 @@ import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { copyPackageTemplates, patchBuildVscodeScript, renderPackagedReadme, writePackagedReadme } from "./build-artifacts.mjs"
+import {
+  copyPackageTemplates,
+  patchBuildVscodeScript,
+  pruneWindowsNativeArtifacts,
+  renderPackagedReadme,
+  shouldKeepWindowsNativeArtifact,
+  writePackagedReadme,
+} from "./build-artifacts.mjs"
 
 test("renderPackagedReadme emits code-server usage, dependency, and version details", () => {
   const readme = renderPackagedReadme({
@@ -98,4 +105,39 @@ test("patchBuildVscodeScript rewrites the stale copilot build task name", async 
   assert.equal(changed, true)
   assert.match(await readFile(scriptPath, "utf8"), /compile-copilot-extension-build/)
   assert.doesNotMatch(await readFile(scriptPath, "utf8"), /compile-copilot-extension-full-build/)
+})
+
+test("shouldKeepWindowsNativeArtifact keeps Windows native directories only", () => {
+  assert.equal(shouldKeepWindowsNativeArtifact("win32-x64"), true)
+  assert.equal(shouldKeepWindowsNativeArtifact("windows-arm64"), true)
+  assert.equal(shouldKeepWindowsNativeArtifact("arm64-linux"), false)
+  assert.equal(shouldKeepWindowsNativeArtifact("darwin-arm64"), false)
+})
+
+test("pruneWindowsNativeArtifacts removes non-Windows Claude audio-capture vendors", async () => {
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-win-native-prune-"))
+  const audioCaptureRoot = path.join(
+    runtimeRoot,
+    "extensions",
+    "copilot",
+    "node_modules",
+    "@anthropic-ai",
+    "claude-agent-sdk",
+    "vendor",
+    "audio-capture",
+  )
+
+  await mkdir(path.join(audioCaptureRoot, "arm64-linux"), { recursive: true })
+  await mkdir(path.join(audioCaptureRoot, "darwin-arm64"), { recursive: true })
+  await mkdir(path.join(audioCaptureRoot, "win32-x64"), { recursive: true })
+  await writeFile(path.join(audioCaptureRoot, "arm64-linux", "audio-capture.node"), "linux\n")
+  await writeFile(path.join(audioCaptureRoot, "darwin-arm64", "audio-capture.node"), "darwin\n")
+  await writeFile(path.join(audioCaptureRoot, "win32-x64", "audio-capture.node"), "windows\n")
+
+  const changed = await pruneWindowsNativeArtifacts(runtimeRoot)
+
+  assert.equal(changed, true)
+  await access(path.join(audioCaptureRoot, "win32-x64", "audio-capture.node"))
+  await assert.rejects(access(path.join(audioCaptureRoot, "arm64-linux", "audio-capture.node")))
+  await assert.rejects(access(path.join(audioCaptureRoot, "darwin-arm64", "audio-capture.node")))
 })
