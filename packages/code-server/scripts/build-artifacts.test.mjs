@@ -6,6 +6,7 @@ import path from "node:path"
 
 import {
   copyPackageTemplates,
+  looksLikeNativePlatformDir,
   patchBuildVscodeScript,
   pruneSourceNativeArtifacts,
   pruneWindowsNativeArtifacts,
@@ -226,5 +227,76 @@ test("pruneSourceNativeArtifacts removes non-Windows prebuilds from source tree 
   // Output dir: untouched (skipped)
   await access(path.join(outputPrebuilds, "darwin-x64", "computer.node"))
   await access(path.join(outputPrebuilds, "win32-x64", "computer.node"))
+})
+
+test("pruneSourceNativeArtifacts handles vendor/audio-capture style platform containers", async () => {
+  const sourceRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-source-prune-vendor-"))
+  const libDir = path.join(sourceRoot, "lib")
+
+  // Simulate @anthropic-ai/claude-agent-sdk/vendor/audio-capture platform dirs
+  const audioCaptureDir = path.join(
+    sourceRoot,
+    "lib",
+    "vscode",
+    "extensions",
+    "copilot",
+    "node_modules",
+    "@anthropic-ai",
+    "claude-agent-sdk",
+    "vendor",
+    "audio-capture",
+  )
+  await mkdir(path.join(audioCaptureDir, "arm64-linux"), { recursive: true })
+  await mkdir(path.join(audioCaptureDir, "darwin-arm64"), { recursive: true })
+  await mkdir(path.join(audioCaptureDir, "win32-x64"), { recursive: true })
+  for (const plat of ["arm64-linux", "darwin-arm64", "win32-x64"]) {
+    await writeFile(path.join(audioCaptureDir, plat, "audio-capture.node"), `${plat}\n`)
+  }
+
+  // Simulate @swc/ scope — should NOT be treated as a platform container
+  const swcDir = path.join(
+    sourceRoot,
+    "lib",
+    "vscode",
+    "extensions",
+    "copilot",
+    "node_modules",
+    "@swc",
+  )
+  await mkdir(path.join(swcDir, "core"), { recursive: true })
+  await mkdir(path.join(swcDir, "helpers"), { recursive: true })
+  await mkdir(path.join(swcDir, "core-win32-x64-msvc"), { recursive: true })
+  await writeFile(path.join(swcDir, "core-win32-x64-msvc", "swc.win32.node"), "native\n")
+  await writeFile(path.join(swcDir, "helpers", "index.js"), "// helpers\n")
+
+  const changed = await pruneSourceNativeArtifacts(sourceRoot)
+
+  assert.equal(changed, true)
+
+  // audio-capture: Windows kept, non-Windows removed
+  await access(path.join(audioCaptureDir, "win32-x64", "audio-capture.node"))
+  await assert.rejects(access(path.join(audioCaptureDir, "arm64-linux", "audio-capture.node")))
+  await assert.rejects(access(path.join(audioCaptureDir, "darwin-arm64", "audio-capture.node")))
+
+  // @swc scope: untouched — core, helpers, and core-win32-x64-msvc all preserved
+  await access(path.join(swcDir, "helpers", "index.js"))
+  await access(path.join(swcDir, "core-win32-x64-msvc", "swc.win32.node"))
+})
+
+test("looksLikeNativePlatformDir identifies compound platform-arch names", () => {
+  assert.equal(looksLikeNativePlatformDir("darwin-arm64"), true)
+  assert.equal(looksLikeNativePlatformDir("darwin-x64"), true)
+  assert.equal(looksLikeNativePlatformDir("linux-x64"), true)
+  assert.equal(looksLikeNativePlatformDir("win32-x64"), true)
+  assert.equal(looksLikeNativePlatformDir("arm64-linux"), true)
+  assert.equal(looksLikeNativePlatformDir("windows-arm64"), true)
+
+  // Single-component names must NOT match
+  assert.equal(looksLikeNativePlatformDir("x64"), false)
+  assert.equal(looksLikeNativePlatformDir("arm64"), false)
+  assert.equal(looksLikeNativePlatformDir("core"), false)
+  assert.equal(looksLikeNativePlatformDir("helpers"), false)
+  assert.equal(looksLikeNativePlatformDir("Release"), false)
+  assert.equal(looksLikeNativePlatformDir("core-win32-x64-msvc"), false)
 })
 

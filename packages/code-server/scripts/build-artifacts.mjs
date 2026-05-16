@@ -163,44 +163,55 @@ export async function pruneSourceNativeArtifacts(sourceRoot = codeServerRoot) {
   let removedAny = false
 
   async function walkSource(dirPath) {
-    let entries
+    let dirents
     try {
-      entries = await readdir(dirPath)
+      dirents = await readdir(dirPath, { withFileTypes: true })
     } catch {
       return
     }
 
-    for (const entry of entries) {
-      const entryPath = path.join(dirPath, entry)
+    const subDirNames = dirents.filter((d) => d.isDirectory()).map((d) => d.name)
 
-      // Skip vscode-reh-web output directories at lib/ level
-      if (dirPath === libDir && entry.startsWith("vscode-reh-web-")) {
-        continue
-      }
+    // Skip vscode-reh-web output directories at lib/ level — those are handled separately
+    const toVisit = subDirNames.filter(
+      (name) => !(dirPath === libDir && name.startsWith("vscode-reh-web-")),
+    )
 
-      const entryStat = await stat(entryPath).catch(() => null)
-      if (!entryStat?.isDirectory()) continue
-
-      if (entry === "prebuilds") {
-        // Prune non-Windows platform subdirs from this prebuilds directory
-        const platformDirs = await readdir(entryPath).catch(() => [])
-        for (const platformDir of platformDirs) {
-          if (!shouldKeepWindowsNativeArtifact(platformDir)) {
-            await rm(path.join(entryPath, platformDir), { recursive: true, force: true })
-            removedAny = true
-          }
+    // A directory is a "platform container" when ALL its subdirectories have compound
+    // platform-arch names (e.g. darwin-arm64, linux-x64, win32-x64, arm64-linux).
+    // Require at least 2 to avoid false-positives on single-platform optional deps.
+    if (toVisit.length >= 2 && toVisit.every(looksLikeNativePlatformDir)) {
+      for (const name of toVisit) {
+        if (!shouldKeepWindowsNativeArtifact(name)) {
+          await rm(path.join(dirPath, name), { recursive: true, force: true })
+          removedAny = true
         }
-        // Don't recurse into prebuilds
-        continue
       }
+      return
+    }
 
-      await walkSource(entryPath)
+    for (const name of toVisit) {
+      await walkSource(path.join(dirPath, name))
     }
   }
 
   await walkSource(sourceRoot)
   return removedAny
 }
+
+// Returns true for compound platform-arch directory names used by prebuild-install,
+// node-pre-gyp, and similar tools (e.g. darwin-arm64, linux-x64, arm64-linux, win32-x64).
+// Requires both a platform and an arch component to avoid false-positives on names like
+// 'x64' or 'arm64' which are used by packages that are NOT native prebuilds containers.
+export function looksLikeNativePlatformDir(name) {
+  return (
+    /^(darwin|linux|android|freebsd|openbsd|sunos|win32|windows)[-_](arm64|arm|x64|ia32|x86|s390x|ppc64|riscv64|loong64)/.test(
+      name,
+    ) ||
+    /^(arm64|arm|x64|ia32|x86)[-_](linux|darwin|win32|windows|musl)/.test(name)
+  )
+}
+
 
 export async function pruneWindowsNativeArtifacts(
   runtimeRoot = path.join(codeServerRoot, `lib/vscode-reh-web-win32-${upstreamArch}`),
