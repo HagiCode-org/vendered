@@ -172,7 +172,7 @@ async function assertPackagedEntrypoints(runtimeRoot) {
 }
 
 export function getNativeSmokeEntrypoint(runtimeRoot, hostPlatform = process.platform) {
-  return path.join(runtimeRoot, "bin", hostPlatform === "win32" ? "code-server.ps1" : "code-server")
+  return path.join(runtimeRoot, "bin", hostPlatform === "win32" ? "code-server.cmd" : "code-server")
 }
 
 function getPm2Command(hostPlatform = process.platform) {
@@ -181,10 +181,13 @@ function getPm2Command(hostPlatform = process.platform) {
 
 function getPm2WrapperStartCommand(wrapperPath, hostPlatform = process.platform) {
   if (hostPlatform === "win32") {
+    // Use cmd.exe explicitly so PM2 tracks the cmd process (which stays alive
+    // while node runs synchronously inside the .cmd wrapper).
+    const cmdExe = process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe"
     return {
-      command: wrapperPath,
-      pm2Args: ["--interpreter", "powershell.exe"],
-      runtimeArgs: [],
+      command: cmdExe,
+      pm2Args: ["--interpreter", "none"],
+      runtimeArgs: ["/d", "/s", "/c", wrapperPath],
     }
   }
 

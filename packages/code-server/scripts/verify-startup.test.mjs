@@ -39,7 +39,7 @@ test("findReleaseRoot locates the extracted release by entrypoint", async () => 
 test("getNativeSmokeEntrypoint selects platform-specific wrappers", () => {
   assert.equal(getNativeSmokeEntrypoint("/tmp/release", "linux"), path.join("/tmp/release", "bin", "code-server"))
   assert.equal(getNativeSmokeEntrypoint("/tmp/release", "darwin"), path.join("/tmp/release", "bin", "code-server"))
-  assert.equal(getNativeSmokeEntrypoint("C:\\temp\\release", "win32"), path.join("C:\\temp\\release", "bin", "code-server.ps1"))
+  assert.equal(getNativeSmokeEntrypoint("C:\\temp\\release", "win32"), path.join("C:\\temp\\release", "bin", "code-server.cmd"))
 })
 
 test("resolveSpawnInvocation routes Windows PowerShell wrappers through powershell.exe", () => {
