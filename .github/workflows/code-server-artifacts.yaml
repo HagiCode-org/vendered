@@ -149,13 +149,12 @@ jobs:
       with:
         msystem: MSYS
         path-type: inherit
-        # The Windows code-server path only needs a POSIX shell plus the small
-        # toolchain used by the upstream build scripts.
-        # Avoid a full `-Syuu` here because flaky mirror syncs can fail the job
-        # before our build even starts.
+        # Keep the Windows helper toolchain that the upstream build/release
+        # scripts expect, but avoid a full `-Syuu` because flaky mirror syncs
+        # can fail the job before our build even starts.
         update: false
         install: >-
-          jq patch
+          diffutils jq patch quilt rsync unzip zip
 
     - name: Configure Windows shell paths
       if: runner.os == 'Windows'
