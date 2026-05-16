@@ -17,11 +17,7 @@ test("verification wrapper expectations stay aligned with the manifest command s
     getWrapperDefinitions(binEntries, "windows").map((wrapper) => wrapper.fileName),
     [
       "omniroute.cmd",
-      "omniroute.bat",
-      "omniroute.ps1",
       "omniroute-reset-password.cmd",
-      "omniroute-reset-password.bat",
-      "omniroute-reset-password.ps1",
     ],
   )
   assert.deepEqual(
@@ -33,12 +29,8 @@ test("verification wrapper expectations stay aligned with the manifest command s
     [
       "omniroute.sh",
       "omniroute.cmd",
-      "omniroute.bat",
-      "omniroute.ps1",
       "omniroute-reset-password.sh",
       "omniroute-reset-password.cmd",
-      "omniroute-reset-password.bat",
-      "omniroute-reset-password.ps1",
     ],
   )
   assert.equal(getNativeSmokeWrapperFile(binEntries, "windows"), "omniroute.cmd")
@@ -60,21 +52,6 @@ test("resolveSpawnInvocation keeps non-wrapper commands unchanged", () => {
 
   assert.equal(invocation.command, process.execPath)
   assert.deepEqual(invocation.args, ["bin/omniroute.mjs", "--version"])
-})
-
-test("resolveSpawnInvocation routes Windows PowerShell wrappers through powershell.exe", () => {
-  const invocation = resolveSpawnInvocation("C:\\temp\\omniroute.ps1", ["--version"], "win32")
-
-  assert.equal(invocation.command, "powershell.exe")
-  assert.deepEqual(invocation.args, [
-    "-NoLogo",
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    "C:\\temp\\omniroute.ps1",
-    "--version",
-  ])
 })
 
 test("resolveSpawnInvocation normalizes pm2 to pm2.cmd on Windows", () => {

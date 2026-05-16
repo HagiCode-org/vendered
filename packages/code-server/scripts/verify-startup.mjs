@@ -167,7 +167,6 @@ async function assertPackagedEntrypoints(runtimeRoot) {
     access(path.join(runtimeRoot, "out", "node", "entry.js")),
     access(path.join(runtimeRoot, "bin", "code-server")),
     access(path.join(runtimeRoot, "bin", "code-server.cmd")),
-    access(path.join(runtimeRoot, "bin", "code-server.ps1")),
   ])
 }
 
@@ -201,17 +200,10 @@ function getPm2WrapperStartCommand(wrapperPath, hostPlatform = process.platform)
 export function resolveSpawnInvocation(command, args, hostPlatform = process.platform) {
   const resolvedCommand = resolveCommand(command, hostPlatform)
 
-  if (hostPlatform === "win32" && /\.(cmd|bat)$/i.test(resolvedCommand)) {
+  if (hostPlatform === "win32" && /\.cmd$/i.test(resolvedCommand)) {
     return {
       command: process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe",
       args: ["/d", "/s", "/c", resolvedCommand, ...args],
-    }
-  }
-
-  if (hostPlatform === "win32" && /\.ps1$/i.test(resolvedCommand)) {
-    return {
-      command: "powershell.exe",
-      args: ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolvedCommand, ...args],
     }
   }
 

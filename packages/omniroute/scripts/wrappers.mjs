@@ -1,6 +1,6 @@
 import path from "node:path"
 
-export const WINDOWS_WRAPPER_EXTENSIONS = Object.freeze([".cmd", ".bat", ".ps1"])
+export const WINDOWS_WRAPPER_EXTENSIONS = Object.freeze([".cmd"])
 export const UNIX_WRAPPER_EXTENSION = ".sh"
 
 export function getManifestBinEntries(manifest) {
@@ -65,18 +65,11 @@ export function renderWrapperContent(wrapperDefinition) {
 
   switch (path.extname(wrapperDefinition.fileName).toLowerCase()) {
     case ".cmd":
-    case ".bat":
       return `@echo off
 setlocal
 set "SCRIPT_DIR=%~dp0"
 node "%SCRIPT_DIR%${windowsRelativeEntrypoint}" %*
 exit /b %ERRORLEVEL%
-`
-    case ".ps1":
-      return `$scriptDir = $PSScriptRoot
-$target = Join-Path $scriptDir '${escapePowerShellLiteral(windowsRelativeEntrypoint)}'
-& node $target @args
-exit $LASTEXITCODE
 `
     case UNIX_WRAPPER_EXTENSION:
       return `#!/usr/bin/env sh
@@ -131,8 +124,4 @@ function normalizeReleaseRelativePath(value, label) {
   }
 
   return normalized
-}
-
-function escapePowerShellLiteral(value) {
-  return value.replaceAll("'", "''")
 }

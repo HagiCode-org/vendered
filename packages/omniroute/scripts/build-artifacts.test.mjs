@@ -91,11 +91,7 @@ test("getWrapperDefinitions uses platform-specific naming and native smoke targe
     windowsWrappers.map((wrapper) => wrapper.fileName),
     [
       "omniroute.cmd",
-      "omniroute.bat",
-      "omniroute.ps1",
       "omniroute-reset-password.cmd",
-      "omniroute-reset-password.bat",
-      "omniroute-reset-password.ps1",
     ],
   )
   assert.equal(getNativeSmokeWrapperFile(binEntries, "windows"), "omniroute.cmd")
@@ -108,7 +104,7 @@ test("getWrapperDefinitions uses platform-specific naming and native smoke targe
   assert.equal(getNativeSmokeWrapperFile(binEntries, "linux"), "omniroute.sh")
 })
 
-test("getCrossPlatformWrapperDefinitions includes Unix, cmd, bat, and PowerShell wrappers", () => {
+test("getCrossPlatformWrapperDefinitions includes Unix and Windows cmd wrappers", () => {
   const binEntries = [
     {
       command: "omniroute",
@@ -118,7 +114,7 @@ test("getCrossPlatformWrapperDefinitions includes Unix, cmd, bat, and PowerShell
 
   assert.deepEqual(
     getCrossPlatformWrapperDefinitions(binEntries).map((wrapper) => wrapper.fileName),
-    ["omniroute.sh", "omniroute.cmd", "omniroute.bat", "omniroute.ps1"],
+    ["omniroute.sh", "omniroute.cmd"],
   )
 })
 
@@ -151,11 +147,6 @@ test("writePlatformWrappers emits cross-platform wrappers for every command", as
   assert.match(cmdWrapper, /set "SCRIPT_DIR=%~dp0"/)
   assert.match(cmdWrapper, /%SCRIPT_DIR%\.vendored\\commands\\omniroute-reset-password\.mjs/)
   assert.doesNotMatch(cmdWrapper, new RegExp(releaseRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
-
-  const ps1Wrapper = await readFile(path.join(releaseRoot, "omniroute.ps1"), "utf8")
-  assert.match(ps1Wrapper, /\$scriptDir = \$PSScriptRoot/)
-  assert.match(ps1Wrapper, /\$target = Join-Path \$scriptDir '\.vendored\\commands\\omniroute\.mjs'/)
-  assert.doesNotMatch(ps1Wrapper, /Split-Path -LiteralPath/)
 
   const shellWrapper = await readFile(path.join(releaseRoot, "omniroute.sh"), "utf8")
   assert.match(shellWrapper, /exec node "\$SCRIPT_DIR\/\.vendored\/commands\/omniroute\.mjs" "\$@"/)
@@ -302,7 +293,7 @@ test("renderPackagedReadme emits OmniRoute usage, dependency, and version detail
   assert.match(readme, /pm2 start cmd\.exe --interpreter none --name omniroute -- \/d \/s \/c \.\\omniroute\.cmd --config \.\\config\.yaml --no-open/)
   assert.match(readme, /## Entrypoints/)
   assert.match(readme, /Recommended PM2 startup entrypoint: `\.\\omniroute\.cmd`/)
-  assert.match(readme, /Windows PowerShell: `\.\\omniroute\.ps1` and `\.\\omniroute-reset-password\.ps1`/)
+  assert.match(readme, /Windows cmd wrapper: `\.\\omniroute\.cmd` and `\.\\omniroute-reset-password\.cmd`/)
   assert.match(readme, /Direct Node maintenance entrypoint: `node \.\\bin\\reset-password\.mjs`/)
   assert.match(readme, /Internal runtime entrypoints managed by the CLI: `app\/server\.js` and, when present, `app\/server-ws\.mjs`/)
   assert.match(readme, /Do not point PM2 at `bin\/omniroute\.mjs`, `app\/server\.js`, or `scripts\/\*\.mjs`/)

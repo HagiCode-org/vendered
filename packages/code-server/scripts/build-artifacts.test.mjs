@@ -24,7 +24,7 @@ test("renderPackagedReadme emits code-server usage, dependency, and version deta
   })
 
   assert.match(readme, /\.\\bin\\code-server\.cmd --help/)
-  assert.match(readme, /pm2 start \.\\bin\\code-server\.ps1 --interpreter powershell\.exe --name code-server -- --config \.\\config\.yaml/)
+  assert.match(readme, /pm2 start cmd\.exe --interpreter none --name code-server -- \/d \/s \/c \.\\bin\\code-server\.cmd --config \.\\config\.yaml/)
   assert.match(readme, /Template path: `templates\/code-server-config\.yaml`/)
   assert.match(readme, /PM2 should target these wrappers instead of `out\/node\/entry\.js` directly/)
   assert.match(readme, /Node\.js 22 must be available on PATH/)
@@ -65,7 +65,7 @@ test("copyPackageTemplates stages vendored templates into the release root", asy
   assert.match(templateContents, /extensions-dir: \{\{EXTENSIONS_DIR\}\}/)
 })
 
-test("code-server packaged guidance documents Unix, cmd, and PowerShell wrappers", () => {
+test("code-server packaged guidance documents Unix and Windows cmd wrappers", () => {
   const readme = renderPackagedReadme({
     version: "4.99.0",
     sourceRevision: "abc123",
@@ -74,23 +74,20 @@ test("code-server packaged guidance documents Unix, cmd, and PowerShell wrappers
   })
 
   assert.match(readme, /Unix shell: `\.\/bin\/code-server`/)
-  assert.match(readme, /Windows Command Prompt: `\.\\bin\\code-server\.cmd`/)
-  assert.match(readme, /Windows PowerShell: `\.\\bin\\code-server\.ps1`/)
+  assert.match(readme, /Windows cmd wrapper: `\.\\bin\\code-server\.cmd`/)
   assert.match(readme, /pm2 start \.\/bin\/code-server --interpreter none --name code-server -- --config \.\/config\.yaml/)
 })
 
-test("code-server wrapper filenames cover Unix, cmd, and PowerShell entrypoints", async () => {
+test("code-server wrapper filenames cover Unix and Windows cmd entrypoints", async () => {
   const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-wrappers-"))
   const binDir = path.join(releaseRoot, "bin")
   await mkdir(binDir, { recursive: true })
 
   await writeFile(path.join(binDir, "code-server"), "#!/usr/bin/env sh\n")
   await writeFile(path.join(binDir, "code-server.cmd"), "@echo off\n")
-  await writeFile(path.join(binDir, "code-server.ps1"), "$RootDir = $PSScriptRoot\n")
 
   await access(path.join(binDir, "code-server"))
   await access(path.join(binDir, "code-server.cmd"))
-  await access(path.join(binDir, "code-server.ps1"))
 })
 
 test("patchBuildVscodeScript rewrites the stale copilot build task name", async () => {
@@ -299,4 +296,3 @@ test("looksLikeNativePlatformDir identifies compound platform-arch names", () =>
   assert.equal(looksLikeNativePlatformDir("Release"), false)
   assert.equal(looksLikeNativePlatformDir("core-win32-x64-msvc"), false)
 })
-

@@ -317,13 +317,6 @@ set ROOT_DIR=%~dp0..
 node "%ROOT_DIR%\\out\\node\\entry.js" %*
 `,
   )
-
-  await writeFile(
-    path.join(binDir, "code-server.ps1"),
-    `$RootDir = Split-Path -Parent $PSScriptRoot
-node "$RootDir\\out\\node\\entry.js" @args
-`,
-  )
 }
 
 async function collectArtifacts(version) {
@@ -382,7 +375,6 @@ export function renderPackagedReadme({ version, sourceRevision, targetPlatform =
       ? [
           "```powershell",
           ".\\bin\\code-server.cmd --help",
-          ".\\bin\\code-server.ps1 --help",
           "```",
         ].join("\n")
       : [
@@ -396,7 +388,7 @@ export function renderPackagedReadme({ version, sourceRevision, targetPlatform =
       ? [
           "```powershell",
           "Copy-Item .\\templates\\code-server-config.yaml .\\config.yaml",
-          'pm2 start .\\bin\\code-server.ps1 --interpreter powershell.exe --name code-server -- --config .\\config.yaml',
+          'pm2 start cmd.exe --interpreter none --name code-server -- /d /s /c .\\bin\\code-server.cmd --config .\\config.yaml',
           "```",
         ].join("\n")
       : [
@@ -445,11 +437,10 @@ export function renderPackagedReadme({ version, sourceRevision, targetPlatform =
     "",
     "## Included wrappers",
     "",
-    "Every packaged archive includes startup wrappers for Linux/macOS shell and Windows shells. PM2 should target these wrappers instead of `out/node/entry.js` directly:",
+    "Every packaged archive includes startup wrappers for Linux/macOS shell and a Windows cmd wrapper. PM2 should target these wrappers instead of `out/node/entry.js` directly:",
     "",
     "- Unix shell: `./bin/code-server`",
-    "- Windows Command Prompt: `.\\bin\\code-server.cmd`",
-    "- Windows PowerShell: `.\\bin\\code-server.ps1`",
+    "- Windows cmd wrapper: `.\\bin\\code-server.cmd`",
     "",
     "## YAML configuration",
     "",

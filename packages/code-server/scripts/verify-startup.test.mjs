@@ -42,21 +42,6 @@ test("getNativeSmokeEntrypoint selects platform-specific wrappers", () => {
   assert.equal(getNativeSmokeEntrypoint("C:\\temp\\release", "win32"), path.join("C:\\temp\\release", "bin", "code-server.cmd"))
 })
 
-test("resolveSpawnInvocation routes Windows PowerShell wrappers through powershell.exe", () => {
-  const invocation = resolveSpawnInvocation("C:\\temp\\release\\bin\\code-server.ps1", ["--help"], "win32")
-
-  assert.equal(invocation.command, "powershell.exe")
-  assert.deepEqual(invocation.args, [
-    "-NoLogo",
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    "C:\\temp\\release\\bin\\code-server.ps1",
-    "--help",
-  ])
-})
-
 test("resolveSpawnInvocation normalizes pm2 to pm2.cmd on Windows", () => {
   const invocation = resolveSpawnInvocation("pm2", ["--version"], "win32")
 
