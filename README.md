@@ -20,7 +20,7 @@ The vendored terminal programs are designed to run as:
 That contract applies to both package families:
 
 - `code-server`: use `./bin/code-server` on Unix-like systems or `.\\bin\\code-server.ps1` under Windows PM2.
-- `omniroute`: use `./omniroute.sh` on Unix-like systems or `.\\omniroute.ps1` under Windows PM2.
+- `omniroute`: use `./omniroute.sh` on Unix-like systems or `.\\omniroute.cmd` under Windows PM2.
 
 PM2 should not point directly at `out/node/entry.js`, `bin/*.mjs`, `app/server.js`, or support scripts. Those internal entrypoints are still present in the archive, but the supported runtime surface is the wrapper layer because it is what the packaged verification flow exercises.
 

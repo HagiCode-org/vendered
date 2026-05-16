@@ -231,7 +231,7 @@ export function renderPackagedReadme({ version, upstreamVersion, sourceRevision,
       ? [
           "```powershell",
           "Copy-Item .\\templates\\omniroute-config.yaml .\\config.yaml",
-          'pm2 start .\\omniroute.ps1 --interpreter powershell.exe --name omniroute -- --config .\\config.yaml --no-open',
+          'pm2 start cmd.exe --interpreter none --name omniroute -- /d /s /c .\\omniroute.cmd --config .\\config.yaml --no-open',
           "```",
         ].join("\n")
       : [
@@ -265,7 +265,7 @@ export function renderPackagedReadme({ version, upstreamVersion, sourceRevision,
           "",
           "Use these entrypoints in the extracted archive:",
           "",
-          "- Recommended PM2 startup entrypoint: `.\\omniroute.ps1`",
+          "- Recommended PM2 startup entrypoint: `.\\omniroute.cmd`",
           "- Recommended maintenance entrypoint: `.\\omniroute-reset-password.cmd`",
           "- Direct Node CLI entrypoint: `node .\\bin\\omniroute.mjs`",
           "- Direct Node maintenance entrypoint: `node .\\bin\\reset-password.mjs`",

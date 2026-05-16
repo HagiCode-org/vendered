@@ -280,7 +280,7 @@ function getNativeStartupWrapperFile(binEntries, targetPlatform) {
   }
 
   return normalizeTargetPlatform(targetPlatform) === "windows"
-    ? `${preferredEntry.command}.ps1`
+    ? `${preferredEntry.command}.cmd`
     : `${preferredEntry.command}.sh`
 }
 
@@ -291,9 +291,9 @@ function getPm2Command(hostPlatform = process.platform) {
 function getPm2WrapperStartCommand(wrapperPath, targetPlatform) {
   if (normalizeTargetPlatform(targetPlatform) === "windows") {
     return {
-      command: wrapperPath,
-      pm2Args: ["--interpreter", "powershell.exe"],
-      runtimeArgs: [],
+      command: process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe",
+      pm2Args: ["--interpreter", "none"],
+      runtimeArgs: ["/d", "/s", "/c", wrapperPath],
     }
   }
 

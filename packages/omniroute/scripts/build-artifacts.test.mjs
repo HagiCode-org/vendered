@@ -299,9 +299,9 @@ test("renderPackagedReadme emits OmniRoute usage, dependency, and version detail
   })
 
   assert.match(readme, /\.\\omniroute\.cmd --help/)
-  assert.match(readme, /pm2 start \.\\omniroute\.ps1 --interpreter powershell\.exe --name omniroute -- --config \.\\config\.yaml --no-open/)
+  assert.match(readme, /pm2 start cmd\.exe --interpreter none --name omniroute -- \/d \/s \/c \.\\omniroute\.cmd --config \.\\config\.yaml --no-open/)
   assert.match(readme, /## Entrypoints/)
-  assert.match(readme, /Recommended PM2 startup entrypoint: `\.\\omniroute\.ps1`/)
+  assert.match(readme, /Recommended PM2 startup entrypoint: `\.\\omniroute\.cmd`/)
   assert.match(readme, /Windows PowerShell: `\.\\omniroute\.ps1` and `\.\\omniroute-reset-password\.ps1`/)
   assert.match(readme, /Direct Node maintenance entrypoint: `node \.\\bin\\reset-password\.mjs`/)
   assert.match(readme, /Internal runtime entrypoints managed by the CLI: `app\/server\.js` and, when present, `app\/server-ws\.mjs`/)

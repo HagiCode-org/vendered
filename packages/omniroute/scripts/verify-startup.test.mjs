@@ -43,7 +43,7 @@ test("verification wrapper expectations stay aligned with the manifest command s
   )
   assert.equal(getNativeSmokeWrapperFile(binEntries, "windows"), "omniroute.cmd")
   assert.equal(getNativeSmokeWrapperFile(binEntries, "macos"), "omniroute.sh")
-  assert.equal(getNativeStartupWrapperFile(binEntries, "windows"), "omniroute.ps1")
+  assert.equal(getNativeStartupWrapperFile(binEntries, "windows"), "omniroute.cmd")
   assert.equal(getNativeStartupWrapperFile(binEntries, "macos"), "omniroute.sh")
 })
 
@@ -105,18 +105,22 @@ test("buildPm2StartupInvocation uses the wrapper and YAML config without a CLI p
   assert.deepEqual(
     buildPm2StartupInvocation({
       processName: "vendored-omniroute-verify-123",
-      wrapperPath: "C:\\temp\\omniroute.ps1",
+      wrapperPath: "C:\\temp\\omniroute.cmd",
       targetPlatform: "windows",
       configPath: "C:\\temp\\omniroute-config.yaml",
     }),
     [
       "start",
-      "C:\\temp\\omniroute.ps1",
+      process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe",
       "--name",
       "vendored-omniroute-verify-123",
       "--interpreter",
-      "powershell.exe",
+      "none",
       "--",
+      "/d",
+      "/s",
+      "/c",
+      "C:\\temp\\omniroute.cmd",
       "--config",
       "C:\\temp\\omniroute-config.yaml",
       "--no-open",
