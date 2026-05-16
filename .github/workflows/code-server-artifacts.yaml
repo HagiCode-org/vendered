@@ -149,9 +149,11 @@ jobs:
       with:
         msystem: MSYS
         path-type: inherit
-        update: true
-        install: >-
-          diffutils jq patch quilt rsync unzip zip
+        # The Windows code-server path only needs a POSIX shell plus `patch`.
+        # Avoid a full `-Syuu` here because flaky mirror syncs can fail the job
+        # before our build even starts.
+        update: false
+        install: patch
 
     - name: Configure Windows shell paths
       if: runner.os == 'Windows'
