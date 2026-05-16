@@ -160,33 +160,45 @@ async function patchWindowsBuildVscodeScript() {
 
 export async function pruneSourceNativeArtifacts(sourceRoot = codeServerRoot) {
   const libDir = path.join(sourceRoot, "lib")
-  const prebuildsDirs = new Set()
-
-  await walkDirectory(
-    sourceRoot,
-    async (dirPath, entries) => {
-      if (entries.some((e) => e.endsWith(".node"))) {
-        prebuildsDirs.add(path.dirname(dirPath))
-      }
-    },
-    (parentPath, entryName) => parentPath === libDir && entryName.startsWith("vscode-reh-web-"),
-  )
-
   let removedAny = false
 
-  for (const prebuildsDir of prebuildsDirs) {
-    const entries = await readdir(prebuildsDir).catch(() => [])
+  async function walkSource(dirPath) {
+    let entries
+    try {
+      entries = await readdir(dirPath)
+    } catch {
+      return
+    }
 
     for (const entry of entries) {
-      if (shouldKeepWindowsNativeArtifact(entry)) {
+      const entryPath = path.join(dirPath, entry)
+
+      // Skip vscode-reh-web output directories at lib/ level
+      if (dirPath === libDir && entry.startsWith("vscode-reh-web-")) {
         continue
       }
 
-      await rm(path.join(prebuildsDir, entry), { recursive: true, force: true })
-      removedAny = true
+      const entryStat = await stat(entryPath).catch(() => null)
+      if (!entryStat?.isDirectory()) continue
+
+      if (entry === "prebuilds") {
+        // Prune non-Windows platform subdirs from this prebuilds directory
+        const platformDirs = await readdir(entryPath).catch(() => [])
+        for (const platformDir of platformDirs) {
+          if (!shouldKeepWindowsNativeArtifact(platformDir)) {
+            await rm(path.join(entryPath, platformDir), { recursive: true, force: true })
+            removedAny = true
+          }
+        }
+        // Don't recurse into prebuilds
+        continue
+      }
+
+      await walkSource(entryPath)
     }
   }
 
+  await walkSource(sourceRoot)
   return removedAny
 }
 
@@ -228,7 +240,7 @@ async function findPrebuildsDirectories(root) {
   return [...nativeFileDirs]
 }
 
-async function walkDirectory(dirPath, visitor, skipEntry = null) {
+async function walkDirectory(dirPath, visitor) {
   let entries
   try {
     entries = await readdir(dirPath)
@@ -239,14 +251,10 @@ async function walkDirectory(dirPath, visitor, skipEntry = null) {
   await visitor(dirPath, entries)
 
   for (const entry of entries) {
-    if (skipEntry && skipEntry(dirPath, entry)) {
-      continue
-    }
-
     const entryPath = path.join(dirPath, entry)
     const entryStat = await stat(entryPath).catch(() => null)
     if (entryStat?.isDirectory()) {
-      await walkDirectory(entryPath, visitor, skipEntry)
+      await walkDirectory(entryPath, visitor)
     }
   }
 }
