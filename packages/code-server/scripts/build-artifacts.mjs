@@ -94,7 +94,14 @@ async function runBuildPipeline(version) {
   if (platform === "windows") {
     await applyPatchesWithPatch(baseEnv)
     await patchWindowsBuildVscodeScript()
-    await runBash("npm ci && npm run build && npm run build:vscode", {
+    // Build without vscode first so we can prune non-Windows native prebuilds from
+    // source node_modules before rcedit runs inside build:vscode.
+    await runBash("npm ci && npm run build", {
+      cwd: codeServerRoot,
+      env: baseEnv,
+    })
+    await pruneSourceNativeArtifacts()
+    await runBash("npm run build:vscode", {
       cwd: codeServerRoot,
       env: baseEnv,
     })
@@ -151,6 +158,38 @@ async function patchWindowsBuildVscodeScript() {
   await writeFile(scriptPath, script.replace(needle, `$1${guard}`))
 }
 
+export async function pruneSourceNativeArtifacts(sourceRoot = codeServerRoot) {
+  const libDir = path.join(sourceRoot, "lib")
+  const prebuildsDirs = new Set()
+
+  await walkDirectory(
+    sourceRoot,
+    async (dirPath, entries) => {
+      if (entries.some((e) => e.endsWith(".node"))) {
+        prebuildsDirs.add(path.dirname(dirPath))
+      }
+    },
+    (parentPath, entryName) => parentPath === libDir && entryName.startsWith("vscode-reh-web-"),
+  )
+
+  let removedAny = false
+
+  for (const prebuildsDir of prebuildsDirs) {
+    const entries = await readdir(prebuildsDir).catch(() => [])
+
+    for (const entry of entries) {
+      if (shouldKeepWindowsNativeArtifact(entry)) {
+        continue
+      }
+
+      await rm(path.join(prebuildsDir, entry), { recursive: true, force: true })
+      removedAny = true
+    }
+  }
+
+  return removedAny
+}
+
 export async function pruneWindowsNativeArtifacts(
   runtimeRoot = path.join(codeServerRoot, `lib/vscode-reh-web-win32-${upstreamArch}`),
 ) {
@@ -189,7 +228,7 @@ async function findPrebuildsDirectories(root) {
   return [...nativeFileDirs]
 }
 
-async function walkDirectory(dirPath, visitor) {
+async function walkDirectory(dirPath, visitor, skipEntry = null) {
   let entries
   try {
     entries = await readdir(dirPath)
@@ -200,10 +239,14 @@ async function walkDirectory(dirPath, visitor) {
   await visitor(dirPath, entries)
 
   for (const entry of entries) {
+    if (skipEntry && skipEntry(dirPath, entry)) {
+      continue
+    }
+
     const entryPath = path.join(dirPath, entry)
     const entryStat = await stat(entryPath).catch(() => null)
     if (entryStat?.isDirectory()) {
-      await walkDirectory(entryPath, visitor)
+      await walkDirectory(entryPath, visitor, skipEntry)
     }
   }
 }

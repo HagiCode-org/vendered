@@ -7,6 +7,7 @@ import path from "node:path"
 import {
   copyPackageTemplates,
   patchBuildVscodeScript,
+  pruneSourceNativeArtifacts,
   pruneWindowsNativeArtifacts,
   renderPackagedReadme,
   shouldKeepWindowsNativeArtifact,
@@ -169,3 +170,61 @@ test("pruneWindowsNativeArtifacts removes non-Windows prebuilds across multiple 
   await assert.rejects(access(path.join(copilotSdkPrebuilds, "darwin-arm64", "computer.node")))
   await assert.rejects(access(path.join(copilotSdkPrebuilds, "linux-x64", "computer.node")))
 })
+
+test("pruneSourceNativeArtifacts removes non-Windows prebuilds from source tree and skips vscode-reh-web output dirs", async () => {
+  const sourceRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-source-prune-"))
+  const libDir = path.join(sourceRoot, "lib")
+
+  // Source node_modules that SHOULD be pruned
+  const sourcePrebuilds = path.join(
+    sourceRoot,
+    "lib",
+    "vscode",
+    "extensions",
+    "copilot",
+    "node_modules",
+    "@github",
+    "copilot",
+    "sdk",
+    "prebuilds",
+  )
+  await mkdir(path.join(sourcePrebuilds, "darwin-x64"), { recursive: true })
+  await mkdir(path.join(sourcePrebuilds, "darwin-arm64"), { recursive: true })
+  await mkdir(path.join(sourcePrebuilds, "linux-x64"), { recursive: true })
+  await mkdir(path.join(sourcePrebuilds, "win32-x64"), { recursive: true })
+  for (const plat of ["darwin-x64", "darwin-arm64", "linux-x64", "win32-x64"]) {
+    await writeFile(path.join(sourcePrebuilds, plat, "computer.node"), `${plat}\n`)
+  }
+
+  // Output dir that should NOT be touched
+  const outputPrebuilds = path.join(
+    libDir,
+    "vscode-reh-web-win32-x64",
+    "extensions",
+    "copilot",
+    "node_modules",
+    "@github",
+    "copilot",
+    "sdk",
+    "prebuilds",
+  )
+  await mkdir(path.join(outputPrebuilds, "darwin-x64"), { recursive: true })
+  await mkdir(path.join(outputPrebuilds, "win32-x64"), { recursive: true })
+  await writeFile(path.join(outputPrebuilds, "darwin-x64", "computer.node"), "darwin\n")
+  await writeFile(path.join(outputPrebuilds, "win32-x64", "computer.node"), "windows\n")
+
+  const changed = await pruneSourceNativeArtifacts(sourceRoot)
+
+  assert.equal(changed, true)
+
+  // Source: Windows kept, non-Windows removed
+  await access(path.join(sourcePrebuilds, "win32-x64", "computer.node"))
+  await assert.rejects(access(path.join(sourcePrebuilds, "darwin-x64", "computer.node")))
+  await assert.rejects(access(path.join(sourcePrebuilds, "darwin-arm64", "computer.node")))
+  await assert.rejects(access(path.join(sourcePrebuilds, "linux-x64", "computer.node")))
+
+  // Output dir: untouched (skipped)
+  await access(path.join(outputPrebuilds, "darwin-x64", "computer.node"))
+  await access(path.join(outputPrebuilds, "win32-x64", "computer.node"))
+})
+
