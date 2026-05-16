@@ -114,9 +114,11 @@ test("shouldKeepWindowsNativeArtifact keeps Windows native directories only", ()
   assert.equal(shouldKeepWindowsNativeArtifact("darwin-arm64"), false)
 })
 
-test("pruneWindowsNativeArtifacts removes non-Windows Claude audio-capture vendors", async () => {
+test("pruneWindowsNativeArtifacts removes non-Windows prebuilds across multiple packages", async () => {
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-win-native-prune-"))
-  const audioCaptureRoot = path.join(
+
+  // Simulate audio-capture prebuilds (old-style vendor dir)
+  const audioCapturePrebuilds = path.join(
     runtimeRoot,
     "extensions",
     "copilot",
@@ -127,17 +129,43 @@ test("pruneWindowsNativeArtifacts removes non-Windows Claude audio-capture vendo
     "audio-capture",
   )
 
-  await mkdir(path.join(audioCaptureRoot, "arm64-linux"), { recursive: true })
-  await mkdir(path.join(audioCaptureRoot, "darwin-arm64"), { recursive: true })
-  await mkdir(path.join(audioCaptureRoot, "win32-x64"), { recursive: true })
-  await writeFile(path.join(audioCaptureRoot, "arm64-linux", "audio-capture.node"), "linux\n")
-  await writeFile(path.join(audioCaptureRoot, "darwin-arm64", "audio-capture.node"), "darwin\n")
-  await writeFile(path.join(audioCaptureRoot, "win32-x64", "audio-capture.node"), "windows\n")
+  // Simulate copilot/sdk prebuilds (the actual failing case)
+  const copilotSdkPrebuilds = path.join(
+    runtimeRoot,
+    "extensions",
+    "copilot",
+    "node_modules",
+    "@github",
+    "copilot",
+    "sdk",
+    "prebuilds",
+  )
+
+  await mkdir(path.join(audioCapturePrebuilds, "arm64-linux"), { recursive: true })
+  await mkdir(path.join(audioCapturePrebuilds, "darwin-arm64"), { recursive: true })
+  await mkdir(path.join(audioCapturePrebuilds, "win32-x64"), { recursive: true })
+  await writeFile(path.join(audioCapturePrebuilds, "arm64-linux", "capture.node"), "linux\n")
+  await writeFile(path.join(audioCapturePrebuilds, "darwin-arm64", "capture.node"), "darwin\n")
+  await writeFile(path.join(audioCapturePrebuilds, "win32-x64", "capture.node"), "windows\n")
+
+  await mkdir(path.join(copilotSdkPrebuilds, "darwin-arm64"), { recursive: true })
+  await mkdir(path.join(copilotSdkPrebuilds, "linux-x64"), { recursive: true })
+  await mkdir(path.join(copilotSdkPrebuilds, "win32-x64"), { recursive: true })
+  await writeFile(path.join(copilotSdkPrebuilds, "darwin-arm64", "computer.node"), "darwin\n")
+  await writeFile(path.join(copilotSdkPrebuilds, "linux-x64", "computer.node"), "linux\n")
+  await writeFile(path.join(copilotSdkPrebuilds, "win32-x64", "computer.node"), "windows\n")
 
   const changed = await pruneWindowsNativeArtifacts(runtimeRoot)
 
   assert.equal(changed, true)
-  await access(path.join(audioCaptureRoot, "win32-x64", "audio-capture.node"))
-  await assert.rejects(access(path.join(audioCaptureRoot, "arm64-linux", "audio-capture.node")))
-  await assert.rejects(access(path.join(audioCaptureRoot, "darwin-arm64", "audio-capture.node")))
+
+  // audio-capture: Windows kept, others removed
+  await access(path.join(audioCapturePrebuilds, "win32-x64", "capture.node"))
+  await assert.rejects(access(path.join(audioCapturePrebuilds, "arm64-linux", "capture.node")))
+  await assert.rejects(access(path.join(audioCapturePrebuilds, "darwin-arm64", "capture.node")))
+
+  // copilot/sdk: Windows kept, others removed
+  await access(path.join(copilotSdkPrebuilds, "win32-x64", "computer.node"))
+  await assert.rejects(access(path.join(copilotSdkPrebuilds, "darwin-arm64", "computer.node")))
+  await assert.rejects(access(path.join(copilotSdkPrebuilds, "linux-x64", "computer.node")))
 })

@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import { access, chmod, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -153,34 +154,58 @@ async function patchWindowsBuildVscodeScript() {
 export async function pruneWindowsNativeArtifacts(
   runtimeRoot = path.join(codeServerRoot, `lib/vscode-reh-web-win32-${upstreamArch}`),
 ) {
-  const audioCaptureRoot = path.join(
-    runtimeRoot,
-    "extensions",
-    "copilot",
-    "node_modules",
-    "@anthropic-ai",
-    "claude-agent-sdk",
-    "vendor",
-    "audio-capture",
-  )
-
-  if (!(await exists(audioCaptureRoot))) {
+  if (!(await exists(runtimeRoot))) {
     return false
   }
 
-  const entries = await readdir(audioCaptureRoot)
+  const prebuildsDirs = await findPrebuildsDirectories(runtimeRoot)
   let removedAny = false
 
-  for (const entry of entries) {
-    if (shouldKeepWindowsNativeArtifact(entry)) {
-      continue
-    }
+  for (const prebuildsDir of prebuildsDirs) {
+    const entries = await readdir(prebuildsDir)
 
-    await rm(path.join(audioCaptureRoot, entry), { recursive: true, force: true })
-    removedAny = true
+    for (const entry of entries) {
+      if (shouldKeepWindowsNativeArtifact(entry)) {
+        continue
+      }
+
+      await rm(path.join(prebuildsDir, entry), { recursive: true, force: true })
+      removedAny = true
+    }
   }
 
   return removedAny
+}
+
+async function findPrebuildsDirectories(root) {
+  const nativeFileDirs = new Set()
+
+  await walkDirectory(root, async (dirPath, entries) => {
+    if (entries.some((e) => e.endsWith(".node"))) {
+      nativeFileDirs.add(path.dirname(dirPath))
+    }
+  })
+
+  return [...nativeFileDirs]
+}
+
+async function walkDirectory(dirPath, visitor) {
+  let entries
+  try {
+    entries = await readdir(dirPath)
+  } catch {
+    return
+  }
+
+  await visitor(dirPath, entries)
+
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry)
+    const entryStat = await stat(entryPath).catch(() => null)
+    if (entryStat?.isDirectory()) {
+      await walkDirectory(entryPath, visitor)
+    }
+  }
 }
 
 export async function patchBuildVscodeScript(scriptPath = path.join(codeServerRoot, "ci", "build", "build-vscode.sh")) {
