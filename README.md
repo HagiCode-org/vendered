@@ -11,6 +11,37 @@ This repository stores vendored build inputs and CI automation.
 - `packages/code-server/templates/code-server-config.yaml` and `packages/omniroute/templates/omniroute-config.yaml` are the packaged YAML config templates. Deployment is expected to copy one of these templates into a runtime `config.yaml`, fill in the values, and pass it to the packaged CLI with `--config`.
 - `packages/omniroute/scripts/build-artifacts.mjs` and `packages/omniroute/scripts/verify-startup.mjs` are the OmniRoute package-local build and packaged-entry verification entrypoints. The OmniRoute verify step now performs a real `pm2`-managed startup smoke test against the packaged release and waits for `/api/monitoring/health` before publication.
 
+## Terminal usage for published packages
+
+The files under `packages/*/scripts/*.mjs` are maintainer build and verification entrypoints. End users should run the extracted release archives from the GitHub Release assets instead of invoking those repo-local scripts directly.
+
+### code-server
+
+After extracting a published `code-server-<version>-<platform>-<arch>` archive, start it from a terminal with the packaged wrapper:
+
+```bash
+./bin/code-server --help
+./bin/code-server --bind-addr 0.0.0.0:8080 .
+```
+
+On Windows, use `.\bin\code-server.cmd`.
+
+If you need the direct Node entrypoint for troubleshooting, use `node ./out/node/entry.js --help` from inside the extracted archive. Do not treat repo-local build scripts as runtime entrypoints.
+
+### OmniRoute
+
+After extracting a published `omniroute-<version>-<platform>-<arch>` archive, start it from a terminal with the top-level wrapper:
+
+```bash
+./omniroute.sh --help
+./omniroute.sh
+./omniroute-reset-password.sh
+```
+
+On Windows, use `.\omniroute.cmd` or `.\omniroute-reset-password.cmd`.
+
+If you need the direct Node CLI entrypoints, use `node ./bin/omniroute.mjs --help` and `node ./bin/reset-password.mjs` from inside the extracted archive. Do not start the packaged OmniRoute release from `scripts/*.mjs`; those files are support scripts, not supported runtime entrypoints.
+
 ## Runtime contract
 
 The vendored terminal programs are designed to run as:
