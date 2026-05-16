@@ -8,6 +8,7 @@ import os from "node:os"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { quoteYamlString, renderConfigTemplate } from "../../../scripts/config-template.mjs"
 import {
   getCrossPlatformWrapperDefinitions,
   getManifestBinEntries,
@@ -58,7 +59,9 @@ async function main() {
     const manifest = JSON.parse(await readFile(resolveReleasePath(releaseRoot, "package.json"), "utf8"))
     const binEntries = getManifestBinEntries(manifest)
     const targetPlatform = normalizeTargetPlatform(metadata.platform)
-    const runtimeEnv = await createRuntimeEnv(tempDirectory)
+    const port = await getAvailablePort()
+    const runtimeSetup = await createRuntimeSetup(tempDirectory)
+    const configPath = await writeRuntimeConfig(releaseRoot, tempDirectory, port, runtimeSetup)
 
     await access(path.join(releaseRoot, "app", "server.js"))
     await assertPackagedEntrypoints(releaseRoot, binEntries)
@@ -66,21 +69,21 @@ async function main() {
 
     const version = await runAndCapture(process.execPath, [getPackagedEntrypoint(metadata), "--version"], {
       cwd: releaseRoot,
-      env: runtimeEnv,
+      env: runtimeSetup.env,
     })
 
     if (version.trim() !== metadata.version) {
       throw new Error(`Packaged OmniRoute version mismatch: expected ${metadata.version}, received ${version.trim()}`)
     }
 
-    const nativeWrapperVersion = await runNativeWrapperVersion(releaseRoot, binEntries, targetPlatform, runtimeEnv)
+    const nativeWrapperVersion = await runNativeWrapperVersion(releaseRoot, binEntries, targetPlatform, runtimeSetup.env)
     if (nativeWrapperVersion.trim() !== metadata.version) {
       throw new Error(
         `Native wrapper version mismatch: expected ${metadata.version}, received ${nativeWrapperVersion.trim()}`,
       )
     }
 
-    await verifyPm2Startup(releaseRoot, binEntries, targetPlatform, runtimeEnv)
+    await verifyPm2Startup(releaseRoot, binEntries, targetPlatform, runtimeSetup.env, configPath, port)
 
     console.log(`Verified OmniRoute package ${metadata.version} with PM2-managed wrapper startup`)
   } finally {
@@ -88,14 +91,14 @@ async function main() {
   }
 }
 
-async function createRuntimeEnv(tempDirectory) {
+async function createRuntimeSetup(tempDirectory) {
   const homeDir = path.join(tempDirectory, "home")
   const appDataDir = path.join(tempDirectory, "appdata")
   const localAppDataDir = path.join(tempDirectory, "localappdata")
   const dataDir = path.join(tempDirectory, "data")
   const pm2HomeDir = path.join(tempDirectory, "pm2-home")
   const logsDir = path.join(tempDirectory, "logs")
-  const configPath = path.join(tempDirectory, "omniroute-config.yaml")
+  const runtimeHomeDir = path.join(tempDirectory, "runtime-home")
 
   await Promise.all([
     mkdir(homeDir, { recursive: true }),
@@ -104,53 +107,61 @@ async function createRuntimeEnv(tempDirectory) {
     mkdir(dataDir, { recursive: true }),
     mkdir(pm2HomeDir, { recursive: true }),
     mkdir(logsDir, { recursive: true }),
+    mkdir(runtimeHomeDir, { recursive: true }),
   ])
 
-  await writeFile(
-    configPath,
-    `runtimeHome: ${JSON.stringify(path.join(tempDirectory, "runtime-home"))}\nlisten: \"127.0.0.1:39001\"\ndataDir: ${JSON.stringify(dataDir)}\nlogDir: ${JSON.stringify(logsDir)}\n`,
-    "utf8",
-  )
-
   return {
-    ...process.env,
-    HOME: homeDir,
-    USERPROFILE: homeDir,
-    APPDATA: appDataDir,
-    LOCALAPPDATA: localAppDataDir,
-    DATA_DIR: dataDir,
-    LOG_DIR: logsDir,
-    OMNIROUTE_CONFIG_PATH: configPath,
-    PM2_HOME: pm2HomeDir,
-    OMNIROUTE_MEMORY_MB: "256",
+    env: {
+      ...process.env,
+      HOME: homeDir,
+      USERPROFILE: homeDir,
+      APPDATA: appDataDir,
+      LOCALAPPDATA: localAppDataDir,
+      DATA_DIR: dataDir,
+      LOG_DIR: logsDir,
+      PM2_HOME: pm2HomeDir,
+      OMNIROUTE_MEMORY_MB: "256",
+    },
+    runtimeHomeDir,
+    dataDir,
+    logsDir,
   }
 }
 
-async function verifyPm2Startup(releaseRoot, binEntries, targetPlatform, env) {
-  const port = await getAvailablePort()
+async function writeRuntimeConfig(releaseRoot, tempDirectory, port, runtimeSetup) {
+  const configTemplatePath = resolveReleasePath(releaseRoot, "templates/omniroute-config.yaml")
+  const configPath = path.join(tempDirectory, "omniroute-config.yaml")
+  await access(configTemplatePath)
+  await writeFile(
+    configPath,
+    renderConfigTemplate(await readFile(configTemplatePath, "utf8"), {
+      RUNTIME_ROOT: quoteYamlString(runtimeSetup.runtimeHomeDir),
+      LISTEN_ADDR: quoteYamlString(`127.0.0.1:${port}`),
+      DATA_DIR: quoteYamlString(runtimeSetup.dataDir),
+      LOGS_DIR: quoteYamlString(runtimeSetup.logsDir),
+    }),
+    "utf8",
+  )
+
+  return configPath
+}
+
+async function verifyPm2Startup(releaseRoot, binEntries, targetPlatform, env, configPath, port) {
   const processName = `vendored-omniroute-verify-${process.pid}-${Date.now()}`
   const pm2Command = getPm2Command()
   const wrapperFile = getNativeStartupWrapperFile(binEntries, targetPlatform)
   const wrapperPath = resolveReleasePath(releaseRoot, wrapperFile)
-  const pm2Start = getPm2WrapperStartCommand(wrapperPath, targetPlatform)
+  const pm2Startup = buildPm2StartupInvocation({
+    processName,
+    wrapperPath,
+    targetPlatform,
+    configPath,
+  })
 
   await ensurePm2Available(pm2Command, env)
 
   try {
-    await run(pm2Command, [
-      "start",
-      pm2Start.command,
-      "--name",
-      processName,
-      ...pm2Start.pm2Args,
-      "--",
-      ...pm2Start.runtimeArgs,
-      "--config",
-      env.OMNIROUTE_CONFIG_PATH,
-      "--port",
-      String(port),
-      "--no-open",
-    ], {
+    await run(pm2Command, pm2Startup, {
       cwd: releaseRoot,
       env,
     })
@@ -291,6 +302,23 @@ function getPm2WrapperStartCommand(wrapperPath, targetPlatform) {
     pm2Args: ["--interpreter", "none"],
     runtimeArgs: [],
   }
+}
+
+function buildPm2StartupInvocation({ processName, wrapperPath, targetPlatform, configPath }) {
+  const pm2Start = getPm2WrapperStartCommand(wrapperPath, targetPlatform)
+
+  return [
+    "start",
+    pm2Start.command,
+    "--name",
+    processName,
+    ...pm2Start.pm2Args,
+    "--",
+    ...pm2Start.runtimeArgs,
+    "--config",
+    configPath,
+    "--no-open",
+  ]
 }
 
 async function readPm2Status(pm2Command, processName, env) {
@@ -494,4 +522,4 @@ function isMainModule() {
   return process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href
 }
 
-export { getNativeStartupWrapperFile, resolveSpawnInvocation }
+export { buildPm2StartupInvocation, getNativeStartupWrapperFile, resolveSpawnInvocation }

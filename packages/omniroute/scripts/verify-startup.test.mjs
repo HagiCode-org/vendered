@@ -1,7 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 
-import { getNativeStartupWrapperFile, resolveSpawnInvocation } from "./verify-startup.mjs"
+import { quoteYamlString, renderConfigTemplate } from "../../../scripts/config-template.mjs"
+import { buildPm2StartupInvocation, getNativeStartupWrapperFile, resolveSpawnInvocation } from "./verify-startup.mjs"
 import { getCrossPlatformWrapperDefinitions, getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions } from "./wrappers.mjs"
 
 test("verification wrapper expectations stay aligned with the manifest command surface", () => {
@@ -81,4 +82,65 @@ test("resolveSpawnInvocation normalizes pm2 to pm2.cmd on Windows", () => {
 
   assert.equal(invocation.command, process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe")
   assert.deepEqual(invocation.args, ["/d", "/s", "/c", "pm2.cmd", "--version"])
+})
+
+test("renderConfigTemplate materializes the packaged OmniRoute YAML template", () => {
+  const rendered = renderConfigTemplate(
+    "runtimeHome: {{RUNTIME_ROOT}}\nlisten: {{LISTEN_ADDR}}\ndataDir: {{DATA_DIR}}\nlogDir: {{LOGS_DIR}}\n",
+    {
+      RUNTIME_ROOT: quoteYamlString("/tmp/runtime-home"),
+      LISTEN_ADDR: quoteYamlString("127.0.0.1:39001"),
+      DATA_DIR: quoteYamlString("/tmp/data"),
+      LOGS_DIR: quoteYamlString("/tmp/logs"),
+    },
+  )
+
+  assert.equal(
+    rendered,
+    'runtimeHome: "/tmp/runtime-home"\nlisten: "127.0.0.1:39001"\ndataDir: "/tmp/data"\nlogDir: "/tmp/logs"\n',
+  )
+})
+
+test("buildPm2StartupInvocation uses the wrapper and YAML config without a CLI port override", () => {
+  assert.deepEqual(
+    buildPm2StartupInvocation({
+      processName: "vendored-omniroute-verify-123",
+      wrapperPath: "C:\\temp\\omniroute.ps1",
+      targetPlatform: "windows",
+      configPath: "C:\\temp\\omniroute-config.yaml",
+    }),
+    [
+      "start",
+      "C:\\temp\\omniroute.ps1",
+      "--name",
+      "vendored-omniroute-verify-123",
+      "--interpreter",
+      "powershell.exe",
+      "--",
+      "--config",
+      "C:\\temp\\omniroute-config.yaml",
+      "--no-open",
+    ],
+  )
+
+  assert.deepEqual(
+    buildPm2StartupInvocation({
+      processName: "vendored-omniroute-verify-123",
+      wrapperPath: "/tmp/omniroute.sh",
+      targetPlatform: "linux",
+      configPath: "/tmp/omniroute-config.yaml",
+    }),
+    [
+      "start",
+      "/tmp/omniroute.sh",
+      "--name",
+      "vendored-omniroute-verify-123",
+      "--interpreter",
+      "none",
+      "--",
+      "--config",
+      "/tmp/omniroute-config.yaml",
+      "--no-open",
+    ],
+  )
 })

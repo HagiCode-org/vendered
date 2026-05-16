@@ -209,15 +209,40 @@ export async function writePackagedReadme(releaseRoot, details) {
 }
 
 export function renderPackagedReadme({ version, upstreamVersion, sourceRevision, targetPlatform = platform, targetArch = arch }) {
-  const usageBlock =
+  const wrapperBlock =
     targetPlatform === "windows"
       ? [
           "```powershell",
           ".\\omniroute.cmd --help",
-          ".\\omniroute.cmd",
-          ".\\omniroute-reset-password.cmd",
+          ".\\omniroute.ps1 --help",
+          ".\\omniroute-reset-password.cmd --help",
           "```",
-          "",
+        ].join("\n")
+      : [
+          "```bash",
+          "./omniroute.sh --help",
+          "./omniroute-reset-password.sh --help",
+          "```",
+        ].join("\n")
+
+  const pm2Block =
+    targetPlatform === "windows"
+      ? [
+          "```powershell",
+          "Copy-Item .\\templates\\omniroute-config.yaml .\\config.yaml",
+          'pm2 start .\\omniroute.ps1 --interpreter powershell.exe --name omniroute -- --config .\\config.yaml --no-open',
+          "```",
+        ].join("\n")
+      : [
+          "```bash",
+          "cp ./templates/omniroute-config.yaml ./config.yaml",
+          "pm2 start ./omniroute.sh --interpreter none --name omniroute -- --config ./config.yaml --no-open",
+          "```",
+        ].join("\n")
+
+  const directEntrypointBlock =
+    targetPlatform === "windows"
+      ? [
           "Direct Node entrypoint:",
           "",
           "```powershell",
@@ -225,12 +250,6 @@ export function renderPackagedReadme({ version, upstreamVersion, sourceRevision,
           "```",
         ].join("\n")
       : [
-          "```bash",
-          "./omniroute.sh --help",
-          "./omniroute.sh",
-          "./omniroute-reset-password.sh",
-          "```",
-          "",
           "Direct Node entrypoint:",
           "",
           "```bash",
@@ -245,12 +264,12 @@ export function renderPackagedReadme({ version, upstreamVersion, sourceRevision,
           "",
           "Use these entrypoints in the extracted archive:",
           "",
-          "- Recommended startup entrypoint: `.\\omniroute.cmd`",
+          "- Recommended PM2 startup entrypoint: `.\\omniroute.ps1`",
           "- Recommended maintenance entrypoint: `.\\omniroute-reset-password.cmd`",
           "- Direct Node CLI entrypoint: `node .\\bin\\omniroute.mjs`",
           "- Direct Node maintenance entrypoint: `node .\\bin\\reset-password.mjs`",
           "- Internal runtime entrypoints managed by the CLI: `app/server.js` and, when present, `app/server-ws.mjs`",
-          "- Do not start the packaged archive from `scripts/*.mjs`; those files are support scripts, not the supported runtime entrypoints for the vendored release.",
+          "- Do not point PM2 at `bin/omniroute.mjs`, `app/server.js`, or `scripts/*.mjs`; use the packaged wrapper entrypoint instead.",
           "",
         ].join("\n")
       : [
@@ -258,37 +277,52 @@ export function renderPackagedReadme({ version, upstreamVersion, sourceRevision,
           "",
           "Use these entrypoints in the extracted archive:",
           "",
-          "- Recommended startup entrypoint: `./omniroute.sh`",
+          "- Recommended PM2 startup entrypoint: `./omniroute.sh`",
           "- Recommended maintenance entrypoint: `./omniroute-reset-password.sh`",
           "- Direct Node CLI entrypoint: `node ./bin/omniroute.mjs`",
           "- Direct Node maintenance entrypoint: `node ./bin/reset-password.mjs`",
           "- Internal runtime entrypoints managed by the CLI: `app/server.js` and, when present, `app/server-ws.mjs`",
-          "- Do not start the packaged archive from `scripts/*.mjs`; those files are support scripts, not the supported runtime entrypoints for the vendored release.",
+          "- Do not point PM2 at `bin/omniroute.mjs`, `app/server.js`, or `scripts/*.mjs`; use the packaged wrapper entrypoint instead.",
           "",
         ].join("\n")
 
   return [
     "# omniroute",
     "",
-    "This archive is the HagiCode vendored standalone OmniRoute bundle. Extract it and run it directly.",
+    "This archive is the HagiCode vendored standalone OmniRoute bundle. Extract it and run it under PM2 through the packaged wrapper entrypoints.",
     "",
     "## Usage",
     "",
     "1. Extract the archive and change into the extracted directory.",
     "2. If you need provider credentials or other runtime settings, start from `.env.example`.",
-    "3. Start OmniRoute with the wrapper below.",
+    "3. Copy `templates/omniroute-config.yaml` to `./config.yaml` and fill in the YAML settings you need.",
+    "4. Start OmniRoute with PM2 and the packaged wrapper below.",
     "",
-    usageBlock,
+    "Wrapper entrypoints:",
+    "",
+    wrapperBlock,
+    "",
+    "PM2-managed startup with YAML config:",
+    "",
+    pm2Block,
+    "",
+    directEntrypointBlock,
     "",
     "## Included wrappers",
     "",
-    "Every packaged archive includes startup wrappers for Linux/macOS shell and Windows shells:",
+    "Every packaged archive includes startup wrappers for Linux/macOS shell and Windows shells. PM2 should target these wrappers instead of the raw Node entrypoints:",
     "",
     "- Unix shell: `./omniroute.sh` and `./omniroute-reset-password.sh`",
     "- Windows Command Prompt: `.\\omniroute.cmd` and `.\\omniroute-reset-password.cmd`",
     "- Windows PowerShell: `.\\omniroute.ps1` and `.\\omniroute-reset-password.ps1`",
     "",
     entrypointSection,
+    "## YAML configuration",
+    "",
+    "- Template path: `templates/omniroute-config.yaml`",
+    "- Supported deployment flow: copy the template, edit the YAML values, then start with `pm2 ... -- --config ./config.yaml`.",
+    "- The verification step exercises the packaged release with PM2, the native wrapper, and a YAML config file before publication.",
+    "",
     "## Dependencies",
     "",
     "- Run this vendored build with Node.js 22. The archive includes `.node-version` with `22`.",

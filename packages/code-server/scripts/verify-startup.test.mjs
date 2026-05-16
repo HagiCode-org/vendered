@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
+import { quoteYamlString, renderConfigTemplate } from "../../../scripts/config-template.mjs"
 import {
   findReleaseRoot,
   getNativeSmokeEntrypoint,
@@ -68,4 +69,20 @@ test("resolveSpawnInvocation keeps Unix wrappers unchanged", () => {
 
   assert.equal(invocation.command, "/tmp/release/bin/code-server")
   assert.deepEqual(invocation.args, ["--help"])
+})
+
+test("renderConfigTemplate materializes the packaged code-server YAML template", () => {
+  const rendered = renderConfigTemplate(
+    "bind-addr: {{BIND_ADDR}}\nauth: none\nuser-data-dir: {{DATA_DIR}}\nextensions-dir: {{EXTENSIONS_DIR}}\n",
+    {
+      BIND_ADDR: quoteYamlString("127.0.0.1:8080"),
+      DATA_DIR: quoteYamlString("/tmp/data"),
+      EXTENSIONS_DIR: quoteYamlString("/tmp/data/extensions"),
+    },
+  )
+
+  assert.equal(
+    rendered,
+    'bind-addr: "127.0.0.1:8080"\nauth: none\nuser-data-dir: "/tmp/data"\nextensions-dir: "/tmp/data/extensions"\n',
+  )
 })

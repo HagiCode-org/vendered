@@ -8,16 +8,20 @@ import { spawn } from "node:child_process"
 import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 
+import { quoteYamlString, renderConfigTemplate } from "../../../scripts/config-template.mjs"
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const packageRoot = path.resolve(__dirname, "..")
 const root = path.resolve(packageRoot, "../..")
 const downloadedDir = path.resolve(root, process.env.ARTIFACTS_DOWNLOAD_DIR || path.join("artifacts", "code-server"))
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : String(error))
-  process.exitCode = 1
-})
+if (isMainModule()) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack || error.message : String(error))
+    process.exitCode = 1
+  })
+}
 
 async function main() {
   process.chdir(root)
@@ -47,17 +51,16 @@ async function main() {
   const configDir = await mkdtemp(path.join(os.tmpdir(), "code-server-config-"))
   const pm2HomeDir = await mkdtemp(path.join(os.tmpdir(), "code-server-pm2-home-"))
   const configPath = path.join(configDir, "config.yaml")
+  const configTemplatePath = path.join(runtimeRoot, "templates", "code-server-config.yaml")
 
+  await access(configTemplatePath)
   await writeFile(
     configPath,
-    [
-      `bind-addr: 127.0.0.1:${port}`,
-      "auth: none",
-      `user-data-dir: ${JSON.stringify(userDataDir)}`,
-      `extensions-dir: ${JSON.stringify(extensionsDir)}`,
-      "disable-telemetry: true",
-      "disable-update-check: true",
-    ].join("\n") + "\n",
+    renderConfigTemplate(await readFile(configTemplatePath, "utf8"), {
+      BIND_ADDR: quoteYamlString(`127.0.0.1:${port}`),
+      DATA_DIR: quoteYamlString(userDataDir),
+      EXTENSIONS_DIR: quoteYamlString(extensionsDir),
+    }),
     "utf8",
   )
 
@@ -418,4 +421,8 @@ function resolveCommand(command, hostPlatform = process.platform) {
 
 function escapePowerShell(value) {
   return value.replaceAll("'", "''")
+}
+
+function isMainModule() {
+  return process.argv[1] != null && path.resolve(process.argv[1]) === __filename
 }

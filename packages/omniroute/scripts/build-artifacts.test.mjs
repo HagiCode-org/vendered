@@ -186,7 +186,11 @@ test("copyPackageTemplates stages vendored templates into the release root", asy
   const copied = await copyPackageTemplates(releaseRoot)
 
   assert.equal(copied, true)
-  await access(path.join(releaseRoot, "templates", "omniroute-config.yaml"))
+  const templateContents = await readFile(path.join(releaseRoot, "templates", "omniroute-config.yaml"), "utf8")
+  assert.match(templateContents, /runtimeHome: \{\{RUNTIME_ROOT\}\}/)
+  assert.match(templateContents, /listen: \{\{LISTEN_ADDR\}\}/)
+  assert.match(templateContents, /dataDir: \{\{DATA_DIR\}\}/)
+  assert.match(templateContents, /logDir: \{\{LOGS_DIR\}\}/)
 })
 
 
@@ -288,12 +292,14 @@ test("renderPackagedReadme emits OmniRoute usage, dependency, and version detail
   })
 
   assert.match(readme, /\.\\omniroute\.cmd --help/)
+  assert.match(readme, /pm2 start \.\\omniroute\.ps1 --interpreter powershell\.exe --name omniroute -- --config \.\\config\.yaml --no-open/)
   assert.match(readme, /## Entrypoints/)
-  assert.match(readme, /Recommended startup entrypoint: `\.\\omniroute\.cmd`/)
+  assert.match(readme, /Recommended PM2 startup entrypoint: `\.\\omniroute\.ps1`/)
   assert.match(readme, /Windows PowerShell: `\.\\omniroute\.ps1` and `\.\\omniroute-reset-password\.ps1`/)
   assert.match(readme, /Direct Node maintenance entrypoint: `node \.\\bin\\reset-password\.mjs`/)
   assert.match(readme, /Internal runtime entrypoints managed by the CLI: `app\/server\.js` and, when present, `app\/server-ws\.mjs`/)
-  assert.match(readme, /Do not start the packaged archive from `scripts\/\*\.mjs`/)
+  assert.match(readme, /Do not point PM2 at `bin\/omniroute\.mjs`, `app\/server\.js`, or `scripts\/\*\.mjs`/)
+  assert.match(readme, /Template path: `templates\/omniroute-config\.yaml`/)
   assert.match(readme, /\.node-version/)
   assert.match(readme, /Upstream version: `3\.7\.9`/)
   assert.match(readme, /Packaged CLI entrypoint: `bin\/omniroute\.mjs`/)
@@ -315,6 +321,7 @@ test("writePackagedReadme preserves the upstream OmniRoute README before overwri
   const packagedReadme = await readFile(path.join(releaseRoot, "README.md"), "utf8")
   assert.match(packagedReadme, /# omniroute/)
   assert.match(packagedReadme, /\.\/omniroute\.sh --help/)
-  assert.match(packagedReadme, /Recommended startup entrypoint: `\.\/omniroute\.sh`/)
+  assert.match(packagedReadme, /Recommended PM2 startup entrypoint: `\.\/omniroute\.sh`/)
+  assert.match(packagedReadme, /pm2 start \.\/omniroute\.sh --interpreter none --name omniroute -- --config \.\/config\.yaml --no-open/)
   assert.match(packagedReadme, /Direct Node maintenance entrypoint: `node \.\/bin\/reset-password\.mjs`/)
 })

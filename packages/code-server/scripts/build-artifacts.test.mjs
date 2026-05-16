@@ -15,6 +15,9 @@ test("renderPackagedReadme emits code-server usage, dependency, and version deta
   })
 
   assert.match(readme, /\.\\bin\\code-server\.cmd --help/)
+  assert.match(readme, /pm2 start \.\\bin\\code-server\.ps1 --interpreter powershell\.exe --name code-server -- --config \.\\config\.yaml/)
+  assert.match(readme, /Template path: `templates\/code-server-config\.yaml`/)
+  assert.match(readme, /PM2 should target these wrappers instead of `out\/node\/entry\.js` directly/)
   assert.match(readme, /Node\.js 22 must be available on PATH/)
   assert.match(readme, /Packaged version: `4\.99\.0`/)
   assert.match(readme, /Source revision: `abc123`/)
@@ -48,8 +51,9 @@ test("copyPackageTemplates stages vendored templates into the release root", asy
     "utf8",
   )
 
-  assert.match(templateContents, /bind-addr: 127\.0\.0\.1:8080/)
+  assert.match(templateContents, /bind-addr: \{\{BIND_ADDR\}\}/)
   assert.match(templateContents, /user-data-dir: \{\{DATA_DIR\}\}/)
+  assert.match(templateContents, /extensions-dir: \{\{EXTENSIONS_DIR\}\}/)
 })
 
 test("code-server packaged guidance documents Unix, cmd, and PowerShell wrappers", () => {
@@ -63,6 +67,7 @@ test("code-server packaged guidance documents Unix, cmd, and PowerShell wrappers
   assert.match(readme, /Unix shell: `\.\/bin\/code-server`/)
   assert.match(readme, /Windows Command Prompt: `\.\\bin\\code-server\.cmd`/)
   assert.match(readme, /Windows PowerShell: `\.\\bin\\code-server\.ps1`/)
+  assert.match(readme, /pm2 start \.\/bin\/code-server --interpreter none --name code-server -- --config \.\/config\.yaml/)
 })
 
 test("code-server wrapper filenames cover Unix, cmd, and PowerShell entrypoints", async () => {

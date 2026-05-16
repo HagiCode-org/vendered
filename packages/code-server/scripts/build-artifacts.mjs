@@ -243,14 +243,38 @@ export async function writePackagedReadme(releaseRoot, details) {
 }
 
 export function renderPackagedReadme({ version, sourceRevision, targetPlatform = platform, targetArch = arch }) {
-  const usageBlock =
+  const wrapperBlock =
     targetPlatform === "windows"
       ? [
           "```powershell",
           ".\\bin\\code-server.cmd --help",
-          ".\\bin\\code-server.cmd --bind-addr 0.0.0.0:8080 .",
+          ".\\bin\\code-server.ps1 --help",
           "```",
-          "",
+        ].join("\n")
+      : [
+          "```bash",
+          "./bin/code-server --help",
+          "```",
+        ].join("\n")
+
+  const pm2Block =
+    targetPlatform === "windows"
+      ? [
+          "```powershell",
+          "Copy-Item .\\templates\\code-server-config.yaml .\\config.yaml",
+          'pm2 start .\\bin\\code-server.ps1 --interpreter powershell.exe --name code-server -- --config .\\config.yaml',
+          "```",
+        ].join("\n")
+      : [
+          "```bash",
+          "cp ./templates/code-server-config.yaml ./config.yaml",
+          "pm2 start ./bin/code-server --interpreter none --name code-server -- --config ./config.yaml",
+          "```",
+        ].join("\n")
+
+  const directEntrypointBlock =
+    targetPlatform === "windows"
+      ? [
           "Direct Node entrypoint:",
           "",
           "```powershell",
@@ -258,11 +282,6 @@ export function renderPackagedReadme({ version, sourceRevision, targetPlatform =
           "```",
         ].join("\n")
       : [
-          "```bash",
-          "./bin/code-server --help",
-          "./bin/code-server --bind-addr 0.0.0.0:8080 .",
-          "```",
-          "",
           "Direct Node entrypoint:",
           "",
           "```bash",
@@ -273,22 +292,36 @@ export function renderPackagedReadme({ version, sourceRevision, targetPlatform =
   return [
     "# code-server",
     "",
-    "This archive is the HagiCode vendored slim build of code-server. Extract it and run it directly.",
+    "This archive is the HagiCode vendored slim build of code-server. Extract it and run it under PM2 through the packaged wrapper entrypoints.",
     "",
     "## Usage",
     "",
     "1. Extract the archive and change into the extracted directory.",
-    "2. Start code-server with the wrapper below.",
+    "2. Copy `templates/code-server-config.yaml` to `./config.yaml` and fill in the YAML settings you need.",
+    "3. Start code-server with PM2 and the packaged wrapper below.",
     "",
-    usageBlock,
+    "Wrapper entrypoints:",
+    "",
+    wrapperBlock,
+    "",
+    "PM2-managed startup with YAML config:",
+    "",
+    pm2Block,
+    directEntrypointBlock,
     "",
     "## Included wrappers",
     "",
-    "Every packaged archive includes startup wrappers for Linux/macOS shell and Windows shells:",
+    "Every packaged archive includes startup wrappers for Linux/macOS shell and Windows shells. PM2 should target these wrappers instead of `out/node/entry.js` directly:",
     "",
     "- Unix shell: `./bin/code-server`",
     "- Windows Command Prompt: `.\\bin\\code-server.cmd`",
     "- Windows PowerShell: `.\\bin\\code-server.ps1`",
+    "",
+    "## YAML configuration",
+    "",
+    "- Template path: `templates/code-server-config.yaml`",
+    "- Supported deployment flow: copy the template, edit the YAML values, then start with `pm2 ... -- --config ./config.yaml`.",
+    "- The verification step exercises the packaged release with PM2, the native wrapper, and a YAML config file before publication.",
     "",
     "## Dependencies",
     "",
