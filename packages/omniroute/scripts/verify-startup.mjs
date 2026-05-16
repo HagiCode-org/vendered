@@ -9,9 +9,9 @@ import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import {
+  getCrossPlatformWrapperDefinitions,
   getManifestBinEntries,
   getNativeSmokeWrapperFile,
-  getWrapperDefinitions,
   normalizeTargetPlatform,
   resolveReleasePath,
 } from "./wrappers.mjs"
@@ -80,9 +80,9 @@ async function main() {
       )
     }
 
-    await verifyPm2Startup(releaseRoot, runtimeEnv)
+    await verifyPm2Startup(releaseRoot, binEntries, targetPlatform, runtimeEnv)
 
-    console.log(`Verified OmniRoute package ${metadata.version} with PM2 startup`)
+    console.log(`Verified OmniRoute package ${metadata.version} with PM2-managed wrapper startup`)
   } finally {
     await rm(tempDirectory, { recursive: true, force: true })
   }
@@ -102,8 +102,8 @@ async function createRuntimeEnv(tempDirectory) {
     mkdir(appDataDir, { recursive: true }),
     mkdir(localAppDataDir, { recursive: true }),
     mkdir(dataDir, { recursive: true }),
-    mkdir(logsDir, { recursive: true }),
     mkdir(pm2HomeDir, { recursive: true }),
+    mkdir(logsDir, { recursive: true }),
   ])
 
   await writeFile(
@@ -126,26 +126,27 @@ async function createRuntimeEnv(tempDirectory) {
   }
 }
 
-async function verifyPm2Startup(releaseRoot, env) {
+async function verifyPm2Startup(releaseRoot, binEntries, targetPlatform, env) {
   const port = await getAvailablePort()
   const processName = `vendored-omniroute-verify-${process.pid}-${Date.now()}`
   const pm2Command = getPm2Command()
-  const entrypointPath = resolveReleasePath(releaseRoot, "bin/omniroute.mjs")
-  const configPath = env.OMNIROUTE_CONFIG_PATH
+  const wrapperFile = getNativeStartupWrapperFile(binEntries, targetPlatform)
+  const wrapperPath = resolveReleasePath(releaseRoot, wrapperFile)
+  const pm2Start = getPm2WrapperStartCommand(wrapperPath, targetPlatform)
 
   await ensurePm2Available(pm2Command, env)
 
   try {
     await run(pm2Command, [
       "start",
-      entrypointPath,
+      pm2Start.command,
       "--name",
       processName,
-      "--interpreter",
-      process.execPath,
+      ...pm2Start.pm2Args,
       "--",
+      ...pm2Start.runtimeArgs,
       "--config",
-      configPath,
+      env.OMNIROUTE_CONFIG_PATH,
       "--port",
       String(port),
       "--no-open",
@@ -196,49 +197,6 @@ async function waitForOmniRouteHealth({ pm2Command, processName, port, env }) {
   throw new Error(`Timed out waiting for OmniRoute health endpoint on port ${port}.\n${diagnostics}`)
 }
 
-async function readPm2Status(pm2Command, processName, env) {
-  try {
-    const output = await runAndCapture(pm2Command, ["jlist"], { env })
-    const processes = JSON.parse(output)
-    const processInfo = Array.isArray(processes)
-      ? processes.find((entry) => entry?.name === processName)
-      : null
-
-    return typeof processInfo?.pm2_env?.status === "string" ? processInfo.pm2_env.status : null
-  } catch {
-    return null
-  }
-}
-
-async function readPm2Diagnostics(pm2Command, processName, env) {
-  const diagnostics = []
-
-  try {
-    diagnostics.push("pm2 describe:")
-    diagnostics.push((await runAndCapture(pm2Command, ["describe", processName], { env })).trim())
-  } catch (error) {
-    diagnostics.push(`pm2 describe failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
-  try {
-    diagnostics.push("pm2 logs:")
-    diagnostics.push((await runAndCapture(pm2Command, ["logs", processName, "--lines", "200", "--nostream"], { env })).trim())
-  } catch (error) {
-    diagnostics.push(`pm2 logs failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
-  return diagnostics.filter(Boolean).join("\n")
-}
-
-async function cleanupPm2(pm2Command, processName, env) {
-  await Promise.allSettled([
-    run(pm2Command, ["delete", processName], { env }),
-  ])
-  await Promise.allSettled([
-    run(pm2Command, ["kill"], { env }),
-  ])
-}
-
 async function extractArchive(archivePath, destinationDir) {
   if (archivePath.endsWith(".tar.gz")) {
     await run("tar", ["-xzf", archivePath, "-C", destinationDir])
@@ -281,7 +239,7 @@ async function assertPackagedEntrypoints(releaseRoot, binEntries) {
 }
 
 async function assertWrapperFiles(releaseRoot, binEntries, targetPlatform) {
-  const wrapperDefinitions = getWrapperDefinitions(binEntries, targetPlatform)
+  const wrapperDefinitions = getCrossPlatformWrapperDefinitions(binEntries)
   for (const wrapperDefinition of wrapperDefinitions) {
     await access(resolveReleasePath(releaseRoot, wrapperDefinition.fileName))
   }
@@ -304,8 +262,78 @@ function getPackagedEntrypoint(metadata) {
     : path.join("bin", "omniroute.mjs")
 }
 
+function getNativeStartupWrapperFile(binEntries, targetPlatform) {
+  const preferredEntry = binEntries.find((entry) => entry.command === "omniroute") ?? binEntries[0]
+  if (!preferredEntry) {
+    throw new Error("Expected at least one CLI command in package.json bin")
+  }
+
+  return normalizeTargetPlatform(targetPlatform) === "windows"
+    ? `${preferredEntry.command}.ps1`
+    : `${preferredEntry.command}.sh`
+}
+
 function getPm2Command(hostPlatform = process.platform) {
   return hostPlatform === "win32" ? "pm2.cmd" : "pm2"
+}
+
+function getPm2WrapperStartCommand(wrapperPath, targetPlatform) {
+  if (normalizeTargetPlatform(targetPlatform) === "windows") {
+    return {
+      command: wrapperPath,
+      pm2Args: ["--interpreter", "powershell.exe"],
+      runtimeArgs: [],
+    }
+  }
+
+  return {
+    command: wrapperPath,
+    pm2Args: ["--interpreter", "none"],
+    runtimeArgs: [],
+  }
+}
+
+async function readPm2Status(pm2Command, processName, env) {
+  try {
+    const output = await runAndCapture(pm2Command, ["jlist"], { env })
+    const processes = JSON.parse(output)
+    const processInfo = Array.isArray(processes)
+      ? processes.find((entry) => entry?.name === processName)
+      : null
+
+    return typeof processInfo?.pm2_env?.status === "string" ? processInfo.pm2_env.status : null
+  } catch {
+    return null
+  }
+}
+
+async function readPm2Diagnostics(pm2Command, processName, env) {
+  const diagnostics = []
+
+  try {
+    diagnostics.push("pm2 describe:")
+    diagnostics.push((await runAndCapture(pm2Command, ["describe", processName], { env })).trim())
+  } catch (error) {
+    diagnostics.push(`pm2 describe failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  try {
+    diagnostics.push("pm2 logs:")
+    diagnostics.push((await runAndCapture(pm2Command, ["logs", processName, "--lines", "200", "--nostream"], { env })).trim())
+  } catch (error) {
+    diagnostics.push(`pm2 logs failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  return diagnostics.filter(Boolean).join("\n")
+}
+
+async function cleanupPm2(pm2Command, processName, env) {
+  await Promise.allSettled([
+    run(pm2Command, ["delete", processName], { env }),
+  ])
+  await Promise.allSettled([
+    run(pm2Command, ["kill"], { env }),
+  ])
 }
 
 async function findFile(rootDir, predicate) {
@@ -386,6 +414,13 @@ function resolveSpawnInvocation(command, args, hostPlatform = process.platform) 
     }
   }
 
+  if (hostPlatform === "win32" && /\.ps1$/i.test(resolvedCommand)) {
+    return {
+      command: "powershell.exe",
+      args: ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolvedCommand, ...args],
+    }
+  }
+
   return { command: resolvedCommand, args }
 }
 
@@ -459,4 +494,4 @@ function isMainModule() {
   return process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href
 }
 
-export { getPm2Command, resolveSpawnInvocation }
+export { getNativeStartupWrapperFile, resolveSpawnInvocation }

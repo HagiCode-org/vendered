@@ -40,6 +40,15 @@ export function getWrapperDefinitions(binEntries, targetPlatform) {
   })
 }
 
+export function getCrossPlatformWrapperDefinitions(binEntries) {
+  return binEntries.flatMap((binEntry) => [
+    createWrapperDefinition(binEntry.command, `${binEntry.command}${UNIX_WRAPPER_EXTENSION}`, binEntry.entryPath),
+    ...WINDOWS_WRAPPER_EXTENSIONS.map((extension) =>
+      createWrapperDefinition(binEntry.command, `${binEntry.command}${extension}`, binEntry.entryPath),
+    ),
+  ])
+}
+
 export function getNativeSmokeWrapperFile(binEntries, targetPlatform) {
   const preferredEntry = binEntries.find((entry) => entry.command === "omniroute") ?? binEntries[0]
   if (!preferredEntry) {
