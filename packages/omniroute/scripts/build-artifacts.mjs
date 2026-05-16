@@ -7,7 +7,7 @@ import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { PUBLICATION_SCHEMA_VERSION, buildBlobKey } from "../../../scripts/publication.mjs"
-import { getManifestBinEntries, getWrapperDefinitions, normalizeTargetPlatform, renderWrapperContent, resolveReleasePath } from "./wrappers.mjs"
+import { getCrossPlatformWrapperDefinitions, getManifestBinEntries, normalizeTargetPlatform, renderWrapperContent, resolveReleasePath } from "./wrappers.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -99,7 +99,7 @@ async function stageReleaseTree({ version, upstreamVersion, sourceRevision }) {
   await access(path.join(releaseRoot, "app", "server.js"))
   await copyPackageTemplates(releaseRoot)
   await assertPackagedEntrypoints(releaseRoot, binEntries)
-  await writePlatformWrappers(releaseRoot, binEntries, platform)
+  await writePlatformWrappers(releaseRoot, binEntries)
   await writePackagedReadme(releaseRoot, { version, upstreamVersion, sourceRevision, targetPlatform: platform, targetArch: arch })
 
   return releaseRoot
@@ -280,6 +280,14 @@ export function renderPackagedReadme({ version, upstreamVersion, sourceRevision,
     "",
     usageBlock,
     "",
+    "## Included wrappers",
+    "",
+    "Every packaged archive includes startup wrappers for Linux/macOS shell and Windows shells:",
+    "",
+    "- Unix shell: `./omniroute.sh` and `./omniroute-reset-password.sh`",
+    "- Windows Command Prompt: `.\\omniroute.cmd` and `.\\omniroute-reset-password.cmd`",
+    "- Windows PowerShell: `.\\omniroute.ps1` and `.\\omniroute-reset-password.ps1`",
+    "",
     entrypointSection,
     "## Dependencies",
     "",
@@ -339,8 +347,8 @@ async function assertPackagedEntrypoints(releaseRoot, binEntries) {
   }
 }
 
-export async function writePlatformWrappers(releaseRoot, binEntries, targetPlatform) {
-  const wrapperDefinitions = getWrapperDefinitions(binEntries, targetPlatform)
+export async function writePlatformWrappers(releaseRoot, binEntries) {
+  const wrapperDefinitions = getCrossPlatformWrapperDefinitions(binEntries)
 
   for (const wrapperDefinition of wrapperDefinitions) {
     const wrapperPath = resolveReleasePath(releaseRoot, wrapperDefinition.fileName)

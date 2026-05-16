@@ -7,7 +7,13 @@ import { pathToFileURL } from "node:url"
 
 import { copyPackageTemplates, createMetadataPayload, patchPrepublishScriptSource, patchResponsesWsProxySource, renderPackagedReadme, writePackagedReadme, writePlatformWrappers } from "./build-artifacts.mjs"
 import { buildBlobKey } from "../../../scripts/publication.mjs"
-import { WINDOWS_WRAPPER_EXTENSIONS, getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions } from "./wrappers.mjs"
+import {
+  WINDOWS_WRAPPER_EXTENSIONS,
+  getCrossPlatformWrapperDefinitions,
+  getManifestBinEntries,
+  getNativeSmokeWrapperFile,
+  getWrapperDefinitions,
+} from "./wrappers.mjs"
 
 test("createMetadataPayload emits vendored OmniRoute publication metadata", () => {
   const metadata = createMetadataPayload({
@@ -102,8 +108,22 @@ test("getWrapperDefinitions uses platform-specific naming and native smoke targe
   assert.equal(getNativeSmokeWrapperFile(binEntries, "linux"), "omniroute.sh")
 })
 
-test("writePlatformWrappers emits archive-relative Windows wrappers for every command", async () => {
-  const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "omniroute-windows-wrappers-"))
+test("getCrossPlatformWrapperDefinitions includes Unix, cmd, bat, and PowerShell wrappers", () => {
+  const binEntries = [
+    {
+      command: "omniroute",
+      entryPath: "bin/omniroute.mjs",
+    },
+  ]
+
+  assert.deepEqual(
+    getCrossPlatformWrapperDefinitions(binEntries).map((wrapper) => wrapper.fileName),
+    ["omniroute.sh", "omniroute.cmd", "omniroute.bat", "omniroute.ps1"],
+  )
+})
+
+test("writePlatformWrappers emits cross-platform wrappers for every command", async () => {
+  const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "omniroute-cross-platform-wrappers-"))
   const binEntries = [
     {
       command: "omniroute",
@@ -115,7 +135,11 @@ test("writePlatformWrappers emits archive-relative Windows wrappers for every co
     },
   ]
 
-  await writePlatformWrappers(releaseRoot, binEntries, "windows")
+  await writePlatformWrappers(releaseRoot, binEntries)
+
+  for (const command of ["omniroute", "omniroute-reset-password"]) {
+    await access(path.join(releaseRoot, `${command}.sh`))
+  }
 
   for (const command of ["omniroute", "omniroute-reset-password"]) {
     for (const extension of WINDOWS_WRAPPER_EXTENSIONS) {
@@ -132,6 +156,9 @@ test("writePlatformWrappers emits archive-relative Windows wrappers for every co
   assert.match(ps1Wrapper, /\$scriptDir = \$PSScriptRoot/)
   assert.match(ps1Wrapper, /\$target = Join-Path \$scriptDir 'bin\\omniroute\.mjs'/)
   assert.doesNotMatch(ps1Wrapper, /Split-Path -LiteralPath/)
+
+  const shellWrapper = await readFile(path.join(releaseRoot, "omniroute.sh"), "utf8")
+  assert.match(shellWrapper, /exec node "\$SCRIPT_DIR\/bin\/omniroute\.mjs" "\$@"/)
 })
 
 test("writePlatformWrappers emits executable Unix shell wrappers", async () => {
@@ -143,7 +170,7 @@ test("writePlatformWrappers emits executable Unix shell wrappers", async () => {
     },
   ]
 
-  await writePlatformWrappers(releaseRoot, binEntries, "linux")
+  await writePlatformWrappers(releaseRoot, binEntries)
 
   const wrapperPath = path.join(releaseRoot, "omniroute.sh")
   const wrapperContents = await readFile(wrapperPath, "utf8")
@@ -263,6 +290,7 @@ test("renderPackagedReadme emits OmniRoute usage, dependency, and version detail
   assert.match(readme, /\.\\omniroute\.cmd --help/)
   assert.match(readme, /## Entrypoints/)
   assert.match(readme, /Recommended startup entrypoint: `\.\\omniroute\.cmd`/)
+  assert.match(readme, /Windows PowerShell: `\.\\omniroute\.ps1` and `\.\\omniroute-reset-password\.ps1`/)
   assert.match(readme, /Direct Node maintenance entrypoint: `node \.\\bin\\reset-password\.mjs`/)
   assert.match(readme, /Internal runtime entrypoints managed by the CLI: `app\/server\.js` and, when present, `app\/server-ws\.mjs`/)
   assert.match(readme, /Do not start the packaged archive from `scripts\/\*\.mjs`/)

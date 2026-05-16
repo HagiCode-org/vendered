@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
@@ -50,6 +50,33 @@ test("copyPackageTemplates stages vendored templates into the release root", asy
 
   assert.match(templateContents, /bind-addr: 127\.0\.0\.1:8080/)
   assert.match(templateContents, /user-data-dir: \{\{DATA_DIR\}\}/)
+})
+
+test("code-server packaged guidance documents Unix, cmd, and PowerShell wrappers", () => {
+  const readme = renderPackagedReadme({
+    version: "4.99.0",
+    sourceRevision: "abc123",
+    targetPlatform: "linux",
+    targetArch: "amd64",
+  })
+
+  assert.match(readme, /Unix shell: `\.\/bin\/code-server`/)
+  assert.match(readme, /Windows Command Prompt: `\.\\bin\\code-server\.cmd`/)
+  assert.match(readme, /Windows PowerShell: `\.\\bin\\code-server\.ps1`/)
+})
+
+test("code-server wrapper filenames cover Unix, cmd, and PowerShell entrypoints", async () => {
+  const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-wrappers-"))
+  const binDir = path.join(releaseRoot, "bin")
+  await mkdir(binDir, { recursive: true })
+
+  await writeFile(path.join(binDir, "code-server"), "#!/usr/bin/env sh\n")
+  await writeFile(path.join(binDir, "code-server.cmd"), "@echo off\n")
+  await writeFile(path.join(binDir, "code-server.ps1"), "$RootDir = $PSScriptRoot\n")
+
+  await access(path.join(binDir, "code-server"))
+  await access(path.join(binDir, "code-server.cmd"))
+  await access(path.join(binDir, "code-server.ps1"))
 })
 
 test("patchBuildVscodeScript rewrites the stale copilot build task name", async () => {
