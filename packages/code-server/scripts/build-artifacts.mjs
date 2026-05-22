@@ -247,9 +247,14 @@ export async function pruneWindowsNativeArtifacts(
   let removedAny = false
 
   for (const prebuildsDir of prebuildsDirs) {
-    const entries = await readdir(prebuildsDir)
+    const entries = await readdir(prebuildsDir, { withFileTypes: true })
+    const directoryNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
 
-    for (const entry of entries) {
+    if (!isWindowsNativePlatformContainer(directoryNames)) {
+      continue
+    }
+
+    for (const entry of directoryNames) {
       if (shouldKeepWindowsNativeArtifact(entry)) {
         continue
       }
@@ -260,6 +265,10 @@ export async function pruneWindowsNativeArtifacts(
   }
 
   return removedAny
+}
+
+export function isWindowsNativePlatformContainer(entryNames) {
+  return entryNames.length >= 2 && entryNames.every(looksLikeNativePlatformDir)
 }
 
 async function findPrebuildsDirectories(root) {

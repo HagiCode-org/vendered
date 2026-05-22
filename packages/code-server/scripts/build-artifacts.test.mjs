@@ -7,6 +7,7 @@ import path from "node:path"
 import {
   collectPatchFilesFromSeries,
   copyPackageTemplates,
+  isWindowsNativePlatformContainer,
   looksLikeNativePlatformDir,
   parsePatchSeries,
   patchBuildVscodeScript,
@@ -137,6 +138,13 @@ test("shouldKeepWindowsNativeArtifact keeps Windows native directories only", ()
   assert.equal(shouldKeepWindowsNativeArtifact("darwin-arm64"), false)
 })
 
+test("isWindowsNativePlatformContainer only matches multi-platform prebuild containers", () => {
+  assert.equal(isWindowsNativePlatformContainer(["darwin-arm64", "linux-x64", "win32-x64"]), true)
+  assert.equal(isWindowsNativePlatformContainer(["Release"]), false)
+  assert.equal(isWindowsNativePlatformContainer(["win32-x64"]), false)
+  assert.equal(isWindowsNativePlatformContainer(["Release", "win32-x64"]), false)
+})
+
 test("pruneWindowsNativeArtifacts removes non-Windows prebuilds across multiple packages", async () => {
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-win-native-prune-"))
 
@@ -191,6 +199,26 @@ test("pruneWindowsNativeArtifacts removes non-Windows prebuilds across multiple 
   await access(path.join(copilotSdkPrebuilds, "win32-x64", "computer.node"))
   await assert.rejects(access(path.join(copilotSdkPrebuilds, "darwin-arm64", "computer.node")))
   await assert.rejects(access(path.join(copilotSdkPrebuilds, "linux-x64", "computer.node")))
+})
+
+test("pruneWindowsNativeArtifacts preserves node-gyp build outputs such as windows-registry", async () => {
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-win-native-build-output-"))
+  const windowsRegistryBuildDir = path.join(
+    runtimeRoot,
+    "node_modules",
+    "@vscode",
+    "windows-registry",
+    "build",
+    "Release",
+  )
+
+  await mkdir(windowsRegistryBuildDir, { recursive: true })
+  await writeFile(path.join(windowsRegistryBuildDir, "winregistry.node"), "windows\n")
+
+  const changed = await pruneWindowsNativeArtifacts(runtimeRoot)
+
+  assert.equal(changed, false)
+  await access(path.join(windowsRegistryBuildDir, "winregistry.node"))
 })
 
 test("pruneSourceNativeArtifacts removes non-Windows prebuilds from source tree and skips vscode-reh-web output dirs", async () => {
