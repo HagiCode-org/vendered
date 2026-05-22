@@ -14,6 +14,7 @@ const __dirname = path.dirname(__filename)
 const packageRoot = path.resolve(__dirname, "..")
 const root = path.resolve(packageRoot, "../..")
 const codeServerRoot = path.join(packageRoot, "upstream")
+const vendoredPatchesRoot = path.join(packageRoot, "patches")
 const releaseDir = path.join(codeServerRoot, process.env.RELEASE_PATH || "release")
 const artifactsDir = path.join(root, process.env.ARTIFACTS_OUTPUT_DIR || path.join("artifacts", "code-server"))
 const packageId = "code-server"
@@ -126,18 +127,40 @@ async function runBuildPipeline(version) {
 }
 
 async function applyPatchesWithPatch(env) {
-  const series = await readFile(path.join(codeServerRoot, "patches", "series"), "utf8")
-  const patchFiles = series
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"))
+  const patchPlans = [
+    ...(await collectPatchFilesFromSeries(path.join(codeServerRoot, "patches", "series"))),
+    ...(await collectPatchFilesFromSeries(path.join(vendoredPatchesRoot, "series"))),
+  ]
 
-  for (const patchFile of patchFiles) {
-    await runMsys2(`patch -p1 --forward -i "${toPosixPath(`patches/${patchFile}`)}"`, {
+  for (const { patchFile, patchPath } of patchPlans) {
+    if (!(await exists(patchPath))) {
+      throw new Error(`Patch file not found: ${patchPath}`)
+    }
+
+    await runMsys2(`patch -p1 --forward -i "${toPosixPath(patchPath)}"`, {
       cwd: codeServerRoot,
       env,
     })
   }
+}
+
+export function parsePatchSeries(series) {
+  return series
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+}
+
+export async function collectPatchFilesFromSeries(seriesPath) {
+  if (!(await exists(seriesPath))) {
+    return []
+  }
+
+  const patchRoot = path.dirname(seriesPath)
+  return parsePatchSeries(await readFile(seriesPath, "utf8")).map((patchFile) => ({
+    patchFile,
+    patchPath: path.join(patchRoot, patchFile),
+  }))
 }
 
 async function patchWindowsBuildVscodeScript() {

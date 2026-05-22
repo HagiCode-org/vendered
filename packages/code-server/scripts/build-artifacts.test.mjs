@@ -5,8 +5,10 @@ import os from "node:os"
 import path from "node:path"
 
 import {
+  collectPatchFilesFromSeries,
   copyPackageTemplates,
   looksLikeNativePlatformDir,
+  parsePatchSeries,
   patchBuildVscodeScript,
   pruneSourceNativeArtifacts,
   pruneWindowsNativeArtifacts,
@@ -14,6 +16,28 @@ import {
   shouldKeepWindowsNativeArtifact,
   writePackagedReadme,
 } from "./build-artifacts.mjs"
+
+test("parsePatchSeries filters comments and blank lines", () => {
+  const series = `# windows-only\n\nfoo.diff\n  # ignored\n\n bar.diff \n`
+
+  assert.deepEqual(parsePatchSeries(series), ["foo.diff", "bar.diff"])
+})
+
+test("collectPatchFilesFromSeries resolves patch files relative to the series file", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-series-"))
+  const patchesRoot = path.join(tempRoot, "patches")
+  const seriesPath = path.join(patchesRoot, "series")
+
+  await mkdir(patchesRoot, { recursive: true })
+  await writeFile(seriesPath, "foo.diff\nbar.diff\n")
+
+  const patchFiles = await collectPatchFilesFromSeries(seriesPath)
+
+  assert.deepEqual(patchFiles, [
+    { patchFile: "foo.diff", patchPath: path.join(patchesRoot, "foo.diff") },
+    { patchFile: "bar.diff", patchPath: path.join(patchesRoot, "bar.diff") },
+  ])
+})
 
 test("renderPackagedReadme emits code-server usage, dependency, and version details", () => {
   const readme = renderPackagedReadme({

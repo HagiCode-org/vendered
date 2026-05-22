@@ -1,0 +1,12 @@
+diff --git a/src/node/wrapper.ts b/src/node/wrapper.ts
+index 1da9eddb..7e7fdc7d 100644
+--- a/src/node/wrapper.ts
++++ b/src/node/wrapper.ts
+@@ -340,6 +340,7 @@ export class WrapperProcess {
+         NODE_EXEC_PATH: process.execPath,
+       },
+       stdio: ["pipe", "pipe", "pipe", "ipc"],
++      windowsHide: true,
+     })
+   }
+
