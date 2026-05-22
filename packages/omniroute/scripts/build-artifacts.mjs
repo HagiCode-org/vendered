@@ -21,6 +21,16 @@ const packageId = "omniroute"
 const platform = normalizeTargetPlatform(process.env.BUILD_ARTIFACTS_PLATFORM || process.platform)
 const arch = normalizeArch(process.env.ARCH || process.arch)
 const vendoredLauncherRuntimeSourcePath = fileURLToPath(new URL("./launcher-runtime.mjs", import.meta.url))
+const buildMutatedTrackedFiles = [
+  "bin/omniroute.mjs",
+  "electron/main.js",
+  "package-lock.json",
+  "scripts/prepublish.ts",
+  "scripts/responses-ws-proxy.mjs",
+  "src/lib/cloudflaredTunnel.ts",
+  "src/lib/versionManager/processManager.ts",
+  "src/mitm/manager.ts",
+]
 
 if (isMainModule()) {
   main().catch((error) => {
@@ -35,6 +45,7 @@ async function main() {
 
   const upstreamVersion = await readUpstreamVersion()
   const version = process.env.VERSION || upstreamVersion
+  const restorableTrackedFiles = await getRestorableTrackedFiles(buildMutatedTrackedFiles)
 
   await run("git", ["submodule", "update", "--init", "--recursive"], { cwd: root })
   const sourceRevision = (await readGitOutput(["rev-parse", "HEAD"], upstreamRoot)).trim()
@@ -43,29 +54,34 @@ async function main() {
   await mkdir(artifactsDir, { recursive: true })
   await mkdir(releaseWorkspace, { recursive: true })
 
-  if (platform === "windows") {
-    await ensureWindowsBuildHomes()
+  try {
+    if (platform === "windows") {
+      await ensureWindowsBuildHomes()
+    }
+
+    await applyVendoredPatches()
+    await patchPrepublishScript()
+    await patchResponsesWsProxyScript()
+
+    await run("npm", ["ci", "--no-audit", "--no-fund"], {
+      cwd: upstreamRoot,
+      env: withBuildEnv(process.env, version),
+    })
+    await run("npm", ["run", "build:cli"], {
+      cwd: upstreamRoot,
+      env: withBuildEnv(process.env, version),
+    })
+    await run("npm", ["run", "check:pack-artifact"], {
+      cwd: upstreamRoot,
+      env: withBuildEnv(process.env, version),
+    })
+
+    const releaseRoot = await stageReleaseTree({ version, upstreamVersion, sourceRevision })
+    const artifacts = await createArchive(version, releaseRoot)
+    await writeMetadata(version, upstreamVersion, sourceRevision, artifacts)
+  } finally {
+    await restoreTrackedFiles(restorableTrackedFiles)
   }
-
-  await patchPrepublishScript()
-  await patchResponsesWsProxyScript()
-
-  await run("npm", ["ci", "--no-audit", "--no-fund"], {
-    cwd: upstreamRoot,
-    env: withBuildEnv(process.env, version),
-  })
-  await run("npm", ["run", "build:cli"], {
-    cwd: upstreamRoot,
-    env: withBuildEnv(process.env, version),
-  })
-  await run("npm", ["run", "check:pack-artifact"], {
-    cwd: upstreamRoot,
-    env: withBuildEnv(process.env, version),
-  })
-
-  const releaseRoot = await stageReleaseTree({ version, upstreamVersion, sourceRevision })
-  const artifacts = await createArchive(version, releaseRoot)
-  await writeMetadata(version, upstreamVersion, sourceRevision, artifacts)
 }
 
 async function stageReleaseTree({ version, upstreamVersion, sourceRevision }) {
@@ -513,6 +529,54 @@ export function patchResponsesWsProxySource(script) {
   return nextScript
 }
 
+export function parsePatchSeries(series) {
+  return series
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+}
+
+export function parseGitStatusPaths(status) {
+  return status
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => {
+      const entry = line.slice(3).trim()
+      return entry.includes(" -> ") ? entry.split(" -> ").at(-1) : entry
+    })
+}
+
+async function applyVendoredPatches() {
+  const seriesPath = path.join(upstreamRoot, "patches", "series")
+
+  if (!(await exists(seriesPath))) {
+    return
+  }
+
+  const patchFiles = parsePatchSeries(await readFile(seriesPath, "utf8"))
+
+  for (const patchFile of patchFiles) {
+    const patchPath = toPosixPath(path.join("patches", patchFile))
+    const fullPatchPath = path.join(upstreamRoot, patchPath)
+
+    if (!(await exists(fullPatchPath))) {
+      throw new Error(`Patch file not found: ${fullPatchPath}`)
+    }
+
+    if (await canApplyGitPatch(["apply", "--check", "--whitespace=nowarn", patchPath], upstreamRoot)) {
+      await run("git", ["apply", "--whitespace=nowarn", patchPath], { cwd: upstreamRoot })
+      continue
+    }
+
+    if (await canApplyGitPatch(["apply", "--reverse", "--check", "--whitespace=nowarn", patchPath], upstreamRoot)) {
+      continue
+    }
+
+    throw new Error(`Unable to apply vendored patch cleanly: ${patchFile}`)
+  }
+}
+
 async function patchPrepublishScript() {
   const scriptPath = path.join(upstreamRoot, "scripts", "prepublish.ts")
   const script = await readFile(scriptPath, "utf8")
@@ -551,6 +615,19 @@ async function exists(targetPath) {
   } catch {
     return false
   }
+}
+
+async function getRestorableTrackedFiles(relativePaths) {
+  const dirtyPaths = new Set(parseGitStatusPaths(await readGitOutput(["status", "--porcelain", "--", ...relativePaths], upstreamRoot)))
+  return relativePaths.filter((relativePath) => !dirtyPaths.has(relativePath))
+}
+
+async function restoreTrackedFiles(relativePaths) {
+  if (relativePaths.length === 0) {
+    return
+  }
+
+  await run("git", ["checkout", "--", ...relativePaths], { cwd: upstreamRoot })
 }
 
 function getCommand(command) {
@@ -612,8 +689,27 @@ function readGitOutput(args, cwd) {
   })
 }
 
+function canApplyGitPatch(args, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn("git", args, {
+      cwd,
+      env: process.env,
+      stdio: "ignore",
+    })
+
+    child.on("error", () => resolve(false))
+    child.on("exit", (code) => {
+      resolve(code === 0)
+    })
+  })
+}
+
 function escapePowerShell(value) {
   return value.replaceAll("'", "''")
+}
+
+function toPosixPath(value) {
+  return value.replaceAll(path.sep, "/")
 }
 
 async function calculateSha256(filePath) {

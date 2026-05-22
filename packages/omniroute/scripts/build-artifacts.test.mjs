@@ -5,7 +5,7 @@ import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { copyPackageTemplates, createMetadataPayload, patchPrepublishScriptSource, patchResponsesWsProxySource, renderPackagedReadme, writePackagedReadme, writePlatformWrappers } from "./build-artifacts.mjs"
+import { copyPackageTemplates, createMetadataPayload, parseGitStatusPaths, parsePatchSeries, patchPrepublishScriptSource, patchResponsesWsProxySource, renderPackagedReadme, writePackagedReadme, writePlatformWrappers } from "./build-artifacts.mjs"
 import { buildBlobKey } from "../../../scripts/publication.mjs"
 import {
   WINDOWS_WRAPPER_EXTENSIONS,
@@ -277,6 +277,23 @@ export function createResponsesWsProxy({
 
   assert.equal(module.loadDefaultWsFactory()(), "resolved-from-app")
   assert.equal(module.createResponsesWsProxy().wsFactory(), "resolved-from-app")
+})
+
+test("parsePatchSeries filters comments and blank lines", () => {
+  const series = `# windows process behavior\n\nwindows-hide-background-processes.diff\n  # ignored comment\n\n second.diff \n`
+
+  assert.deepEqual(parsePatchSeries(series), ["windows-hide-background-processes.diff", "second.diff"])
+})
+
+test("parseGitStatusPaths extracts final repo paths from porcelain output", () => {
+  const status = ` M bin/omniroute.mjs\nM  scripts/prepublish.ts\nR  old/name.ts -> src/new-name.ts\n?? patches/windows-hide-background-processes.diff\n`
+
+  assert.deepEqual(parseGitStatusPaths(status), [
+    "bin/omniroute.mjs",
+    "scripts/prepublish.ts",
+    "src/new-name.ts",
+    "patches/windows-hide-background-processes.diff",
+  ])
 })
 
 
