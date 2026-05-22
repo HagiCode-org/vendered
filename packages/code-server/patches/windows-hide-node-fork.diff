@@ -1,12 +1,21 @@
 diff --git a/src/node/wrapper.ts b/src/node/wrapper.ts
-index 1da9eddb..7e7fdc7d 100644
 --- a/src/node/wrapper.ts
 +++ b/src/node/wrapper.ts
-@@ -340,6 +340,7 @@ export class WrapperProcess {
+@@ -334,14 +334,15 @@ export class WrapperProcess {
+   }
+ 
+   private spawn(): cp.ChildProcess {
+-    return cp.fork(path.join(__dirname, "entry"), {
++    return cp.fork(path.join(__dirname, "entry"), [], {
+       env: {
+         ...process.env,
+         CODE_SERVER_PARENT_PID: process.pid.toString(),
          NODE_EXEC_PATH: process.execPath,
        },
        stdio: ["pipe", "pipe", "pipe", "ipc"],
+-    })
 +      windowsHide: true,
-     })
++    } as cp.ForkOptions)
    }
-
+ 
+   /**
