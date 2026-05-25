@@ -142,11 +142,11 @@ jobs:
 
     - name: Install Linux prerequisites
       if: runner.os == 'Linux'
-      run: sudo apt-get update && sudo apt-get install -y jq rsync quilt libkrb5-dev
+      run: sudo apt-get update && sudo apt-get install -y jq rsync quilt libkrb5-dev zip p7zip-full
 
     - name: Install macOS prerequisites
       if: runner.os == 'macOS'
-      run: brew install jq rsync quilt python-setuptools
+      run: brew install jq rsync quilt python-setuptools p7zip
 
     - name: Setup MSYS2
       if: runner.os == 'Windows'
@@ -245,6 +245,19 @@ jobs:
         node-version: 22
         cache: npm
         cache-dependency-path: packages/omniroute/upstream/package-lock.json
+
+    - name: Install Linux prerequisites
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y zip p7zip-full
+
+    - name: Install macOS prerequisites
+      if: runner.os == 'macOS'
+      run: brew install p7zip
+
+    - name: Install Windows prerequisites
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: choco install 7zip -y
 
     - name: Install PM2
       run: npm install --global pm2
