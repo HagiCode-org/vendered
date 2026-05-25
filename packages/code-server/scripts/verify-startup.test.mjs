@@ -18,13 +18,15 @@ test("resolveArchivePath returns the archive declared in metadata", () => {
     {
       artifacts: [
         { kind: "metadata", fileName: "metadata.json" },
-        { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.tar.gz" },
+        { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.7z" },
+        { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.tar" },
+        { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.zip" },
       ],
     },
     metadataPath,
   )
 
-  assert.equal(archivePath, path.join("/tmp", "artifacts", "code-server-4.99.0-linux-amd64.tar.gz"))
+  assert.equal(archivePath, path.join("/tmp", "artifacts", "code-server-4.99.0-linux-amd64.zip"))
 })
 
 test("findReleaseRoot locates the extracted release by entrypoint", async () => {

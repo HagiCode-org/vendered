@@ -116,9 +116,7 @@ async function verifyPm2Startup(runtimeRoot, configPath, port, env) {
 }
 
 export function resolveArchivePath(metadata, metadataPath) {
-  const archiveDescriptor = Array.isArray(metadata.artifacts)
-    ? metadata.artifacts.find((artifact) => artifact?.kind === "archive")
-    : null
+  const archiveDescriptor = selectArchiveDescriptor(metadata?.artifacts)
 
   if (!archiveDescriptor?.fileName) {
     throw new Error(`Metadata ${metadataPath} does not declare an archive artifact`)
@@ -133,6 +131,16 @@ export async function extractArchive(archivePath, destinationDir) {
     return
   }
 
+  if (archivePath.endsWith(".tar")) {
+    await run("tar", ["-xf", archivePath, "-C", destinationDir])
+    return
+  }
+
+  if (archivePath.endsWith(".7z")) {
+    await run(await resolveSevenZipCommand(), ["x", `-o${destinationDir}`, archivePath])
+    return
+  }
+
   if (!archivePath.endsWith(".zip")) {
     throw new Error(`Unsupported archive format: ${archivePath}`)
   }
@@ -143,6 +151,54 @@ export async function extractArchive(archivePath, destinationDir) {
     "-Command",
     `Expand-Archive -Path '${escapePowerShell(archivePath.replaceAll("/", "\\"))}' -DestinationPath '${escapePowerShell(destinationDir.replaceAll("/", "\\"))}' -Force`,
   ])
+}
+
+function selectArchiveDescriptor(artifacts) {
+  if (!Array.isArray(artifacts)) {
+    return null
+  }
+
+  const archiveDescriptors = artifacts.filter((artifact) => artifact?.kind === "archive" && typeof artifact.fileName === "string")
+  const supportedExtensions = [".zip", ".tar", ".7z", ".tar.gz"]
+
+  for (const extension of supportedExtensions) {
+    const match = archiveDescriptors.find((artifact) => artifact.fileName.endsWith(extension))
+    if (match) {
+      return match
+    }
+  }
+
+  return archiveDescriptors[0] ?? null
+}
+
+async function resolveSevenZipCommand() {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          process.env.SEVEN_ZIP_CMD,
+          "C:\\Program Files\\7-Zip\\7z.exe",
+          "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+          "7z.exe",
+          "7z",
+        ]
+      : [process.env.SEVEN_ZIP_CMD, "7z", "7zz"]
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || candidate.trim() === "") {
+      continue
+    }
+
+    if (candidate.includes(path.sep) || candidate.includes("/")) {
+      if (await exists(candidate)) {
+        return candidate
+      }
+      continue
+    }
+
+    return candidate
+  }
+
+  throw new Error("Unable to resolve a 7z command for archive extraction")
 }
 
 export async function findReleaseRoot(rootDir) {
