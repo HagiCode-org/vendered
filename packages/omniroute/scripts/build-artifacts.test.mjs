@@ -23,7 +23,7 @@ test("createMetadataPayload emits vendored OmniRoute publication metadata", () =
     artifacts: [
       {
         kind: "archive",
-        fileName: "omniroute-2026.0505.0001-linux-amd64.tar.gz",
+        fileName: "omniroute-2026.0505.0001-linux-amd64.tar",
         blobKey: buildBlobKey(
           {
             packageId: "omniroute",
@@ -31,10 +31,40 @@ test("createMetadataPayload emits vendored OmniRoute publication metadata", () =
             platform: "linux",
             arch: "amd64",
           },
-          "omniroute-2026.0505.0001-linux-amd64.tar.gz",
+          "omniroute-2026.0505.0001-linux-amd64.tar",
         ),
         sizeBytes: 123,
         sha256: "a".repeat(64),
+      },
+      {
+        kind: "archive",
+        fileName: "omniroute-2026.0505.0001-linux-amd64.zip",
+        blobKey: buildBlobKey(
+          {
+            packageId: "omniroute",
+            version: "2026.0505.0001",
+            platform: "linux",
+            arch: "amd64",
+          },
+          "omniroute-2026.0505.0001-linux-amd64.zip",
+        ),
+        sizeBytes: 456,
+        sha256: "b".repeat(64),
+      },
+      {
+        kind: "archive",
+        fileName: "omniroute-2026.0505.0001-linux-amd64.7z",
+        blobKey: buildBlobKey(
+          {
+            packageId: "omniroute",
+            version: "2026.0505.0001",
+            platform: "linux",
+            arch: "amd64",
+          },
+          "omniroute-2026.0505.0001-linux-amd64.7z",
+        ),
+        sizeBytes: 789,
+        sha256: "c".repeat(64),
       },
     ],
   })
@@ -52,6 +82,7 @@ test("createMetadataPayload emits vendored OmniRoute publication metadata", () =
     fileName: "metadata.json",
     blobKey: "packages/omniroute/versions/2026.0505.0001/linux-amd64/metadata.json",
   })
+  assert.equal(metadata.artifacts.filter((artifact) => artifact.kind === "archive").length, 3)
 })
 
 test("getManifestBinEntries preserves every declared command and normalizes entrypaths", () => {
