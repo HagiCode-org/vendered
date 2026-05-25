@@ -83,6 +83,6 @@ For example, the first qualifying workflow run on 2026-05-05 would produce `2026
 
 ## GitHub Release publication
 
-After both package families finish their per-platform build and verification jobs, the shared workflow creates or updates one repository release tagged with `v<version>` and uploads both the `code-server` and OmniRoute `.tar.gz` / `.zip` archives from that same run. Asset names stay package-specific so both package families share one vendored release/tag without clobbering one another's archives. Publication still happens automatically on `push` to `main`, and it can also be triggered manually with `workflow_dispatch`. The shared workflow also has a daily schedule, but scheduled runs stop after build and verification so publication remains explicit.
+After both package families finish their per-platform build and verification jobs, the shared workflow creates or updates one repository release tagged with `v<version>` and uploads both the `code-server` and OmniRoute `.zip`, `.tar`, and `.7z` archives from that same run. Asset names stay package-specific so both package families share one vendored release/tag without clobbering one another's archives. Publication still happens automatically on `push` to `main`, and it can also be triggered manually with `workflow_dispatch`. The shared workflow also has a daily schedule, but scheduled runs stop after build and verification so publication remains explicit.
 
 The GitHub release job uses the workflow's built-in `GITHUB_TOKEN`, so no extra repository secret is required.
