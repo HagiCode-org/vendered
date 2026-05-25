@@ -12,13 +12,18 @@ test("collectReleaseAssets returns archives and ignores metadata", async () => {
   try {
     const nestedDirectory = path.join(tempDirectory, "code-server-linux")
     await mkdir(nestedDirectory, { recursive: true })
-    await writeFile(path.join(nestedDirectory, "code-server-2026.0505.0001-linux-amd64.tar.gz"), "archive")
+    await writeFile(path.join(nestedDirectory, "code-server-2026.0505.0001-linux-amd64.tar"), "archive")
+    await writeFile(path.join(nestedDirectory, "code-server-2026.0505.0001-linux-amd64.7z"), "archive")
     await writeFile(path.join(nestedDirectory, "metadata.json"), "{}")
 
     const assets = await collectReleaseAssets(tempDirectory)
 
-    assert.deepEqual(assets.map((asset) => asset.name), ["code-server-2026.0505.0001-linux-amd64.tar.gz"])
-    assert.equal(assets[0].contentType, "application/gzip")
+    assert.deepEqual(assets.map((asset) => asset.name), [
+      "code-server-2026.0505.0001-linux-amd64.7z",
+      "code-server-2026.0505.0001-linux-amd64.tar",
+    ])
+    assert.equal(assets[0].contentType, "application/x-7z-compressed")
+    assert.equal(assets[1].contentType, "application/x-tar")
   } finally {
     await rm(tempDirectory, { recursive: true, force: true })
   }
@@ -41,8 +46,9 @@ test("publishGitHubRelease creates a release and uploads archives", async () => 
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "vendored-release-publish-"))
 
   try {
-    await writeFile(path.join(tempDirectory, "code-server-2026.0505.0001-linux-amd64.tar.gz"), "linux")
+    await writeFile(path.join(tempDirectory, "code-server-2026.0505.0001-linux-amd64.tar"), "linux")
     await writeFile(path.join(tempDirectory, "code-server-2026.0505.0001-windows-amd64.zip"), "windows")
+    await writeFile(path.join(tempDirectory, "code-server-2026.0505.0001-linux-amd64.7z"), "linux-7z")
 
     const requests = []
     const fetchImpl = async (url, options) => {
@@ -77,10 +83,10 @@ test("publishGitHubRelease creates a release and uploads archives", async () => 
       fetchImpl,
     })
 
-    assert.equal(result.assets.length, 2)
+    assert.equal(result.assets.length, 3)
     assert.deepEqual(
       requests.map((request) => request.options.method),
-      ["GET", "POST", "POST", "POST"],
+      ["GET", "POST", "POST", "POST", "POST"],
     )
   } finally {
     await rm(tempDirectory, { recursive: true, force: true })
@@ -91,7 +97,7 @@ test("publishGitHubRelease replaces existing assets on rerun", async () => {
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "vendored-release-rerun-"))
 
   try {
-    await writeFile(path.join(tempDirectory, "code-server-2026.0505.0001-linux-amd64.tar.gz"), "linux")
+    await writeFile(path.join(tempDirectory, "code-server-2026.0505.0001-linux-amd64.tar"), "linux")
 
     const requests = []
     const fetchImpl = async (url, options) => {
@@ -103,7 +109,7 @@ test("publishGitHubRelease replaces existing assets on rerun", async () => {
           upload_url: "https://uploads.github.com/repos/newbe36524/vendered/releases/1/assets{?name,label}",
           assets: [
             {
-              name: "code-server-2026.0505.0001-linux-amd64.tar.gz",
+              name: "code-server-2026.0505.0001-linux-amd64.tar",
               url: "https://api.github.com/repos/newbe36524/vendered/releases/assets/10",
             },
           ],
@@ -116,7 +122,7 @@ test("publishGitHubRelease replaces existing assets on rerun", async () => {
           upload_url: "https://uploads.github.com/repos/newbe36524/vendered/releases/1/assets{?name,label}",
           assets: [
             {
-              name: "code-server-2026.0505.0001-linux-amd64.tar.gz",
+              name: "code-server-2026.0505.0001-linux-amd64.tar",
               url: "https://api.github.com/repos/newbe36524/vendered/releases/assets/10",
             },
           ],
@@ -154,7 +160,7 @@ test("publishGitHubRelease preserves unrelated existing assets on shared vendore
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "vendored-release-shared-"))
 
   try {
-    await writeFile(path.join(tempDirectory, "omniroute-2026.0505.0001-linux-amd64.tar.gz"), "linux")
+    await writeFile(path.join(tempDirectory, "omniroute-2026.0505.0001-linux-amd64.tar"), "linux")
 
     const requests = []
     const fetchImpl = async (url, options) => {
@@ -166,7 +172,7 @@ test("publishGitHubRelease preserves unrelated existing assets on shared vendore
           upload_url: "https://uploads.github.com/repos/newbe36524/vendered/releases/1/assets{?name,label}",
           assets: [
             {
-              name: "code-server-2026.0505.0001-linux-amd64.tar.gz",
+              name: "code-server-2026.0505.0001-linux-amd64.tar",
               url: "https://api.github.com/repos/newbe36524/vendered/releases/assets/10",
             },
           ],
@@ -179,7 +185,7 @@ test("publishGitHubRelease preserves unrelated existing assets on shared vendore
           upload_url: "https://uploads.github.com/repos/newbe36524/vendered/releases/1/assets{?name,label}",
           assets: [
             {
-              name: "code-server-2026.0505.0001-linux-amd64.tar.gz",
+              name: "code-server-2026.0505.0001-linux-amd64.tar",
               url: "https://api.github.com/repos/newbe36524/vendered/releases/assets/10",
             },
           ],

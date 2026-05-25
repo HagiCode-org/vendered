@@ -252,11 +252,27 @@ function stripUrlTemplate(url) {
 }
 
 function isReleaseArchive(filePath) {
-  return filePath.endsWith(".zip") || filePath.endsWith(".tar.gz")
+  return filePath.endsWith(".zip") || filePath.endsWith(".tar.gz") || filePath.endsWith(".tar") || filePath.endsWith(".7z")
 }
 
 function getContentType(filePath) {
-  return filePath.endsWith(".zip") ? "application/zip" : "application/gzip"
+  if (filePath.endsWith(".zip")) {
+    return "application/zip"
+  }
+
+  if (filePath.endsWith(".tar.gz")) {
+    return "application/gzip"
+  }
+
+  if (filePath.endsWith(".tar")) {
+    return "application/x-tar"
+  }
+
+  if (filePath.endsWith(".7z")) {
+    return "application/x-7z-compressed"
+  }
+
+  return "application/octet-stream"
 }
 
 async function walkDirectory(rootDir, visitor) {
