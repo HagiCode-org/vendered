@@ -353,26 +353,21 @@ node "%ROOT_DIR%\\out\\node\\entry.js" %*
 
 async function collectArtifacts(version) {
   const archiveBaseName = `code-server-${version}-${platform}-${arch}`
-  const archivePath =
-    platform === "windows"
-      ? path.join(artifactsDir, `${archiveBaseName}.zip`)
-      : path.join(artifactsDir, `${archiveBaseName}.tar.gz`)
+  const archivePaths = [
+    path.join(artifactsDir, `${archiveBaseName}.zip`),
+    path.join(artifactsDir, `${archiveBaseName}.tar`),
+    path.join(artifactsDir, `${archiveBaseName}.7z`),
+  ]
 
-  if (platform === "windows") {
-    await run("powershell.exe", [
-      "-NoLogo",
-      "-NoProfile",
-      "-Command",
-      `Compress-Archive -Path '${escapePowerShell(releaseDir.replaceAll("/", "\\"))}' -DestinationPath '${escapePowerShell(archivePath.replaceAll("/", "\\"))}' -Force`,
-    ])
-  } else {
-    await run("tar", ["-czf", archivePath, "-C", codeServerRoot, path.basename(releaseDir)])
-  }
+  await createZipArchive(releaseDir, archivePaths[0])
+  await createTarArchive(releaseDir, archivePaths[1])
+  await createSevenZipArchive(releaseDir, archivePaths[2])
 
-  const archiveStats = await stat(archivePath)
+  const artifacts = []
+  for (const archivePath of archivePaths) {
+    const archiveStats = await stat(archivePath)
 
-  return [
-    {
+    artifacts.push({
       kind: "archive",
       fileName: path.basename(archivePath),
       blobKey: buildBlobKey(
@@ -386,8 +381,36 @@ async function collectArtifacts(version) {
       ),
       sizeBytes: archiveStats.size,
       sha256: await calculateSha256(archivePath),
-    },
-  ]
+    })
+  }
+
+  return artifacts
+}
+
+async function createZipArchive(sourceRoot, archivePath) {
+  if (platform === "windows") {
+    await run("powershell.exe", [
+      "-NoLogo",
+      "-NoProfile",
+      "-Command",
+      `Compress-Archive -Path '${escapePowerShell(sourceRoot.replaceAll("/", "\\"))}' -DestinationPath '${escapePowerShell(archivePath.replaceAll("/", "\\"))}' -Force`,
+    ])
+    return
+  }
+
+  await run("zip", ["-qr", archivePath, path.basename(sourceRoot)], {
+    cwd: path.dirname(sourceRoot),
+  })
+}
+
+async function createTarArchive(sourceRoot, archivePath) {
+  await run("tar", ["-cf", archivePath, "-C", path.dirname(sourceRoot), path.basename(sourceRoot)])
+}
+
+async function createSevenZipArchive(sourceRoot, archivePath) {
+  await run(await resolveSevenZipCommand(), ["a", "-t7z", archivePath, path.basename(sourceRoot)], {
+    cwd: path.dirname(sourceRoot),
+  })
 }
 
 export async function writePackagedReadme(releaseRoot, details) {
@@ -608,6 +631,36 @@ async function exists(targetPath) {
   } catch {
     return false
   }
+}
+
+async function resolveSevenZipCommand() {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          process.env.SEVEN_ZIP_CMD,
+          "C:\\Program Files\\7-Zip\\7z.exe",
+          "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+          "7z.exe",
+          "7z",
+        ]
+      : [process.env.SEVEN_ZIP_CMD, "7z", "7zz"]
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || candidate.trim() === "") {
+      continue
+    }
+
+    if (candidate.includes(path.sep) || candidate.includes("/")) {
+      if (await exists(candidate)) {
+        return candidate
+      }
+      continue
+    }
+
+    return candidate
+  }
+
+  throw new Error("Unable to resolve a 7z command for archive generation")
 }
 
 
