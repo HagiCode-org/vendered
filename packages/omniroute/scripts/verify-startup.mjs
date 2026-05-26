@@ -41,12 +41,7 @@ async function main() {
     throw new Error(`Expected omniroute metadata, received ${String(metadata.packageId)}`)
   }
 
-  const archiveDescriptor = selectArchiveDescriptor(metadata?.artifacts)
-  if (!archiveDescriptor?.fileName) {
-    throw new Error(`Metadata ${metadataPath} does not declare an archive artifact`)
-  }
-
-  const archivePath = path.join(path.dirname(metadataPath), archiveDescriptor.fileName)
+  const archivePath = resolveArchivePath(metadata, metadataPath)
   await access(archivePath)
 
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "vendored-omniroute-verify-"))
@@ -226,6 +221,11 @@ async function extractArchive(archivePath, destinationDir) {
     throw new Error(`Unsupported archive format: ${archivePath}`)
   }
 
+  if (process.platform !== "win32") {
+    await run(await resolveSevenZipCommand(), ["x", `-o${destinationDir}`, archivePath])
+    return
+  }
+
   await run("powershell.exe", [
     "-NoLogo",
     "-NoProfile",
@@ -234,13 +234,26 @@ async function extractArchive(archivePath, destinationDir) {
   ])
 }
 
-function selectArchiveDescriptor(artifacts) {
+export function resolveArchivePath(metadata, metadataPath, hostPlatform = process.platform) {
+  const archiveDescriptor = selectArchiveDescriptor(metadata?.artifacts, hostPlatform)
+
+  if (!archiveDescriptor?.fileName) {
+    throw new Error(`Metadata ${metadataPath} does not declare an archive artifact`)
+  }
+
+  return path.join(path.dirname(metadataPath), archiveDescriptor.fileName)
+}
+
+function selectArchiveDescriptor(artifacts, hostPlatform = process.platform) {
   if (!Array.isArray(artifacts)) {
     return null
   }
 
   const archiveDescriptors = artifacts.filter((artifact) => artifact?.kind === "archive" && typeof artifact.fileName === "string")
-  const supportedExtensions = [".zip", ".tar", ".7z", ".tar.gz"]
+  const supportedExtensions =
+    hostPlatform === "win32"
+      ? [".zip", ".tar", ".7z", ".tar.gz"]
+      : [".tar.gz", ".tar", ".7z", ".zip"]
 
   for (const extension of supportedExtensions) {
     const match = archiveDescriptors.find((artifact) => artifact.fileName.endsWith(extension))

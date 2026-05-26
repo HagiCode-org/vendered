@@ -1,9 +1,41 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import path from "node:path"
 
 import { quoteYamlString, renderConfigTemplate } from "../../../scripts/config-template.mjs"
-import { buildPm2StartupInvocation, getNativeStartupWrapperFile, resolveSpawnInvocation } from "./verify-startup.mjs"
+import {
+  buildPm2StartupInvocation,
+  getNativeStartupWrapperFile,
+  resolveArchivePath,
+  resolveSpawnInvocation,
+} from "./verify-startup.mjs"
 import { getCrossPlatformWrapperDefinitions, getManifestBinEntries, getNativeSmokeWrapperFile, getWrapperDefinitions } from "./wrappers.mjs"
+
+test("resolveArchivePath prefers a host-native archive format", () => {
+  const metadataPath = path.join("/tmp", "artifacts", "metadata.json")
+  const metadata = {
+    artifacts: [
+      { kind: "metadata", fileName: "metadata.json" },
+      { kind: "archive", fileName: "omniroute-4.99.0-linux-amd64.7z" },
+      { kind: "archive", fileName: "omniroute-4.99.0-linux-amd64.tar" },
+      { kind: "archive", fileName: "omniroute-4.99.0-linux-amd64.zip" },
+      { kind: "archive", fileName: "omniroute-4.99.0-linux-amd64.tar.gz" },
+    ],
+  }
+
+  assert.equal(
+    resolveArchivePath(metadata, metadataPath, "win32"),
+    path.join("/tmp", "artifacts", "omniroute-4.99.0-linux-amd64.zip"),
+  )
+  assert.equal(
+    resolveArchivePath(metadata, metadataPath, "linux"),
+    path.join("/tmp", "artifacts", "omniroute-4.99.0-linux-amd64.tar.gz"),
+  )
+  assert.equal(
+    resolveArchivePath(metadata, metadataPath, "darwin"),
+    path.join("/tmp", "artifacts", "omniroute-4.99.0-linux-amd64.tar.gz"),
+  )
+})
 
 test("verification wrapper expectations stay aligned with the manifest command surface", () => {
   const binEntries = getManifestBinEntries({

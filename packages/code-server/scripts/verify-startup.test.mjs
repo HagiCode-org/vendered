@@ -12,21 +12,39 @@ import {
   resolveSpawnInvocation,
 } from "./verify-startup.mjs"
 
-test("resolveArchivePath returns the archive declared in metadata", () => {
+test("resolveArchivePath prefers a host-native archive format", () => {
   const metadataPath = path.join("/tmp", "artifacts", "metadata.json")
-  const archivePath = resolveArchivePath(
+  const metadata = {
+    artifacts: [
+      { kind: "metadata", fileName: "metadata.json" },
+      { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.7z" },
+      { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.tar" },
+      { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.zip" },
+      { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.tar.gz" },
+    ],
+  }
+
+  const windowsArchivePath = resolveArchivePath(
+    metadata,
+    metadataPath,
+    "win32",
+  )
+  const linuxArchivePath = resolveArchivePath(
+    metadata,
+    metadataPath,
+    "linux",
+  )
+  const macosArchivePath = resolveArchivePath(
     {
-      artifacts: [
-        { kind: "metadata", fileName: "metadata.json" },
-        { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.7z" },
-        { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.tar" },
-        { kind: "archive", fileName: "code-server-4.99.0-linux-amd64.zip" },
-      ],
+      artifacts: metadata.artifacts,
     },
     metadataPath,
+    "darwin",
   )
 
-  assert.equal(archivePath, path.join("/tmp", "artifacts", "code-server-4.99.0-linux-amd64.zip"))
+  assert.equal(windowsArchivePath, path.join("/tmp", "artifacts", "code-server-4.99.0-linux-amd64.zip"))
+  assert.equal(linuxArchivePath, path.join("/tmp", "artifacts", "code-server-4.99.0-linux-amd64.tar.gz"))
+  assert.equal(macosArchivePath, path.join("/tmp", "artifacts", "code-server-4.99.0-linux-amd64.tar.gz"))
 })
 
 test("findReleaseRoot locates the extracted release by entrypoint", async () => {
