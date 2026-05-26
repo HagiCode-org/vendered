@@ -355,7 +355,7 @@ async function collectArtifacts(version) {
   const archiveBaseName = `code-server-${version}-${platform}-${arch}`
   const archivePaths = [
     path.join(artifactsDir, `${archiveBaseName}.zip`),
-    path.join(artifactsDir, `${archiveBaseName}.tar`),
+    path.join(artifactsDir, `${archiveBaseName}.tar.gz`),
     path.join(artifactsDir, `${archiveBaseName}.7z`),
   ]
 
@@ -404,7 +404,7 @@ async function createZipArchive(sourceRoot, archivePath) {
 }
 
 async function createTarArchive(sourceRoot, archivePath) {
-  await run("tar", ["-cf", archivePath, "-C", path.dirname(sourceRoot), path.basename(sourceRoot)])
+  await run("tar", ["-czf", archivePath, "-C", path.dirname(sourceRoot), path.basename(sourceRoot)])
 }
 
 async function createSevenZipArchive(sourceRoot, archivePath) {

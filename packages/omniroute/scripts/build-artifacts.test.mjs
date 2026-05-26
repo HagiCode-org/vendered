@@ -23,7 +23,7 @@ test("createMetadataPayload emits vendored OmniRoute publication metadata", () =
     artifacts: [
       {
         kind: "archive",
-        fileName: "omniroute-2026.0505.0001-linux-amd64.tar",
+        fileName: "omniroute-2026.0505.0001-linux-amd64.tar.gz",
         blobKey: buildBlobKey(
           {
             packageId: "omniroute",
@@ -31,7 +31,7 @@ test("createMetadataPayload emits vendored OmniRoute publication metadata", () =
             platform: "linux",
             arch: "amd64",
           },
-          "omniroute-2026.0505.0001-linux-amd64.tar",
+          "omniroute-2026.0505.0001-linux-amd64.tar.gz",
         ),
         sizeBytes: 123,
         sha256: "a".repeat(64),
