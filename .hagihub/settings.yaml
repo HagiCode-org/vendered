@@ -1,0 +1,5 @@
+action_recommendations:
+  - id: code-server-artifacts
+    watch: true
+    include: true
+    reason: "build vendored artifacts"
