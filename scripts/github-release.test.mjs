@@ -160,7 +160,7 @@ test("publishGitHubRelease preserves unrelated existing assets on shared vendore
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "vendored-release-shared-"))
 
   try {
-    await writeFile(path.join(tempDirectory, "omniroute-2026.0505.0001-linux-amd64.tar.gz"), "linux")
+    await writeFile(path.join(tempDirectory, "code-server-2026.0505.0001-windows-amd64.tar.gz"), "windows")
 
     const requests = []
     const fetchImpl = async (url, options) => {
