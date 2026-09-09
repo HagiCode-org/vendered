@@ -103,7 +103,7 @@ jobs:
           artifact_name: code-server-macos
           bash_path: bash
         - name: code-server Windows
-          runner: windows-latest
+          runner: windows-2022
           artifact_name: code-server-windows
           bash_path: bash
 
