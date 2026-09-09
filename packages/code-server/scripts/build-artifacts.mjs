@@ -117,13 +117,14 @@ async function runBuildPipeline(version) {
   await runBash(
     [
       getQuiltPushCommand(),
-      // The committed code-server package-lock.json is generated on Linux and
-      // omits `cpu-features`, an argon2 darwin-only optional dependency. npm 10+
-      // enforces lockfile sync even for `npm install`, so it fails on macOS with
-      // "Missing: cpu-features@ from lock file". Removing the stale lockfile lets
-      // npm regenerate a platform-correct one (including cpu-features) instead of
-      // validating against the out-of-sync committed lock.
-      "rm -f package-lock.json",
+      // The committed code-server lockfiles are generated on Linux and omit
+      // argon2's darwin-only optional dependency `cpu-features`. npm 10+ enforces
+      // lockfile sync even for `npm install`, failing on macOS with
+      // "Missing: cpu-features@ from lock file". The check also recurses into the
+      // lib/vscode workspace lockfile, so every top-level package-lock.json
+      // (excluding node_modules) must be removed so npm regenerates
+      // platform-correct locks for the whole tree.
+      "find . -name package-lock.json -not -path '*/node_modules/*' -delete",
       "npm install",
       "npm run build",
       "npm run build:vscode",
