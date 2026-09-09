@@ -701,6 +701,14 @@ function runBash(script, options = {}) {
   if (process.platform === "win32") {
     return runMsys2(script, options)
   }
+  // macOS runners ship a default Node that a login shell's nvm/profile can
+  // switch to (e.g. v24), overriding the Node 22 selected by setup-node. Use a
+  // non-login shell on darwin so the PATH setup-node established (Node 22) is
+  // preserved; lib/vscode's build preinstall rejects any Node whose major
+  // version differs from its .nvmrc.
+  if (process.platform === "darwin") {
+    return run(getBashCommand(), ["-c", script], options)
+  }
   return run(getBashCommand(), ["-lc", script], options)
 }
 
