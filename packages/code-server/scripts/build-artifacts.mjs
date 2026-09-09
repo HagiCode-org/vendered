@@ -120,13 +120,14 @@ async function runBuildPipeline(version) {
       // The committed code-server lockfiles are generated on Linux and omit
       // argon2's darwin-only optional dependency `cpu-features`. npm 10+ enforces
       // lockfile sync even for `npm install`, failing on macOS with
-      // "Missing: cpu-features@ from lock file". Only the root and lib/vscode
-      // locks carry that defect, so remove just those two and let `npm install`
-      // regenerate platform-correct locks. Keep `test/package-lock.json`: the
-      // postinstall script runs `npm ci` inside `test/`, which would otherwise
-      // fail with "npm ci can only install with an existing package-lock.json".
-      "rm -f package-lock.json lib/vscode/package-lock.json",
-      "npm install",
+      // "Missing: cpu-features@ from lock file". Drop every top-level
+      // package-lock.json (excluding node_modules) so they are regenerated
+      // platform-correct. The upstream `postinstall` script runs `npm ci` in
+      // test/, test-extension/ and lib/vscode/ when CI is set, which needs those
+      // locks to already exist — so unset CI for the install step to make it use
+      // `npm install` (which recreates the locks) instead of `npm ci`.
+      "find . -name package-lock.json -not -path '*/node_modules/*' -delete",
+      "CI= npm install",
       "npm run build",
       "npm run build:vscode",
       "KEEP_MODULES=1 npm run release",
