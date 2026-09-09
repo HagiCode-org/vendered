@@ -117,16 +117,16 @@ async function runBuildPipeline(version) {
   await runBash(
     [
       getQuiltPushCommand(),
-      // The committed code-server lockfiles are generated on Linux and omit
-      // argon2's darwin-only optional dependency `cpu-features`. npm 10+ enforces
-      // lockfile sync even for `npm install`, failing on macOS with
-      // "Missing: cpu-features@ from lock file". Drop every top-level
-      // package-lock.json (excluding node_modules) so they are regenerated
-      // platform-correct. The upstream `postinstall` script runs `npm ci` in
-      // test/, test-extension/ and lib/vscode/ when CI is set, which needs those
-      // locks to already exist — so unset CI for the install step to make it use
-      // `npm install` (which recreates the locks) instead of `npm ci`.
-      "find . -name package-lock.json -not -path '*/node_modules/*' -delete",
+      // Only the root lockfile carries the macOS defect: it is generated on
+      // Linux and omits argon2's darwin-only optional dependency `cpu-features`,
+      // so npm 10+ aborts with "Missing: cpu-features@ from lock file". Remove
+      // just the root lock and let `npm install` regenerate it platform-correct.
+      // Keep lib/vscode, test and test-extension locks intact: regenerating them
+      // from scratch drifts @github/copilot (and others) to versions whose
+      // postinstall expects files that are not created, breaking the build.
+      // Unset CI so the upstream postinstall uses `npm install` (lenient, works
+      // with the kept locks) instead of `npm ci` (which requires them present).
+      "rm -f package-lock.json",
       "CI= npm install",
       "npm run build",
       "npm run build:vscode",
