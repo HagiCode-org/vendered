@@ -1,5 +1,7 @@
 # vendered
 
+[![last commit](https://img.shields.io/github/last-commit/HagiCode-org/vendered)](https://github.com/HagiCode-org/vendered/commits/main)
+
 This repository stores vendored build inputs and CI automation.
 
 - `packages/code-server/` contains the vendored code-server integration.
