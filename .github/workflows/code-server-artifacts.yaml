@@ -159,12 +159,21 @@ jobs:
         install: >-
           diffutils jq patch quilt rsync unzip zip
 
-    - name: Configure Windows shell paths
+    - name: Configure Windows shell and SDK paths
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
         Add-Content -Path $env:GITHUB_ENV -Value 'NPM_CONFIG_SCRIPT_SHELL=/usr/bin/bash'
         Add-Content -Path $env:GITHUB_ENV -Value ("MSYS2_CMD={0}\\setup-msys2\\msys2.cmd" -f $env:RUNNER_TEMP)
+        # VS Code uses SignTool when preparing Windows native dependencies.
+        $signTool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+          Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+          Select-Object -First 1
+        if (-not $signTool) {
+          throw 'Windows SDK signtool.exe was not found.'
+        }
+        Add-Content -Path $env:GITHUB_PATH -Value $signTool.DirectoryName
+        Write-Host "Using Windows SDK tools: $($signTool.DirectoryName)"
 
     - name: Install PM2
       run: npm install --global pm2
