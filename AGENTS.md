@@ -17,7 +17,7 @@ Run commands from `repos/vendered/`.
 - `packages/code-server/`: vendored code-server integration (submodule + build/verify scripts + config template)
 - `packages/code-server/patches/`: quilt patch `series` plus patches applied to upstream at build time (instead of editing the submodule)
 - `scripts/`: repo-level release helpers (`versioning.mjs`, `publication.mjs`, `github-release.mjs`, `config-template.mjs`, `publish-to-azure.mjs`, `update-version-index.mjs`) with sibling `*.test.mjs`
-- `.github/workflows/code-server-artifacts.yaml`: shared vendored CI pipeline (build and verify per platform on Node 22, publish on push to `main` or manual dispatch; scheduled runs stop before publication)
+- `.github/workflows/code-server-artifacts.yaml`: shared vendored CI pipeline (build and verify per platform on Node 24, publish on push to `main` or manual dispatch; scheduled runs stop before publication)
 
 ## Agent Guidelines
 

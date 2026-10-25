@@ -52,7 +52,7 @@ test("renderPackagedReadme emits code-server usage, dependency, and version deta
   assert.match(readme, /pm2 start cmd\.exe --interpreter none --name code-server -- \/d \/s \/c \.\\bin\\code-server\.cmd --config \.\\config\.yaml/)
   assert.match(readme, /Template path: `templates\/code-server-config\.yaml`/)
   assert.match(readme, /PM2 should target these wrappers instead of `out\/node\/entry\.js` directly/)
-  assert.match(readme, /Node\.js 22 must be available on PATH/)
+  assert.match(readme, /Node\.js 24 must be available on PATH/)
   assert.match(readme, /Packaged version: `4\.99\.0`/)
   assert.match(readme, /Source revision: `abc123`/)
 })

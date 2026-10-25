@@ -515,7 +515,7 @@ export function renderPackagedReadme({ version, sourceRevision, targetPlatform =
     "",
     "## Dependencies",
     "",
-    "- Node.js 22 must be available on PATH. This archive does not bundle a Node runtime.",
+    "- Node.js 24 must be available on PATH. This archive does not bundle a Node runtime.",
     "- A modern web browser is required to use the UI after the server starts.",
     "",
     "## Version",
@@ -701,11 +701,10 @@ function runBash(script, options = {}) {
   if (process.platform === "win32") {
     return runMsys2(script, options)
   }
-  // macOS runners ship a default Node that a login shell's nvm/profile can
-  // switch to (e.g. v24), overriding the Node 22 selected by setup-node. Use a
-  // non-login shell on darwin so the PATH setup-node established (Node 22) is
-  // preserved; lib/vscode's build preinstall rejects any Node whose major
-  // version differs from its .nvmrc.
+  // A login shell's nvm/profile can override the Node selected by setup-node
+  // on macOS. Use a non-login shell on darwin to preserve setup-node's PATH;
+  // lib/vscode's build preinstall rejects any Node whose major version
+  // differs from its .nvmrc.
   if (process.platform === "darwin") {
     return run(getBashCommand(), ["-c", script], options)
   }

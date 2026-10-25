@@ -23,6 +23,8 @@ If you need the direct Node entrypoint for troubleshooting, use `node ./out/node
 
 ## Runtime contract
 
+These slim archives require Node.js 24.x on PATH and PM2. They do not bundle a Node runtime.
+
 The vendored terminal programs are designed to run as:
 
 `pm2` -> packaged wrapper -> Node entrypoint
