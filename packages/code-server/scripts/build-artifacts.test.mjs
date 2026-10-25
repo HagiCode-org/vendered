@@ -10,7 +10,6 @@ import {
   isWindowsNativePlatformContainer,
   looksLikeNativePlatformDir,
   parsePatchSeries,
-  patchBuildVscodeScript,
   pruneSourceNativeArtifacts,
   pruneWindowsNativeArtifacts,
   renderPackagedReadme,
@@ -113,22 +112,6 @@ test("code-server wrapper filenames cover Unix and Windows cmd entrypoints", asy
 
   await access(path.join(binDir, "code-server"))
   await access(path.join(binDir, "code-server.cmd"))
-})
-
-test("patchBuildVscodeScript rewrites the stale copilot build task name", async () => {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "code-server-build-vscode-"))
-  const scriptPath = path.join(tempRoot, "build-vscode.sh")
-
-  await writeFile(
-    scriptPath,
-    "VSCODE_QUALITY=stable npm run gulp compile-copilot-extension-full-build\n",
-  )
-
-  const changed = await patchBuildVscodeScript(scriptPath)
-
-  assert.equal(changed, true)
-  assert.match(await readFile(scriptPath, "utf8"), /compile-copilot-extension-build/)
-  assert.doesNotMatch(await readFile(scriptPath, "utf8"), /compile-copilot-extension-full-build/)
 })
 
 test("shouldKeepWindowsNativeArtifact keeps Windows native directories only", () => {

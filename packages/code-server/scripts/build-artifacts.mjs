@@ -70,8 +70,6 @@ async function runBuildPipeline(version) {
     npm_config_build_from_source: process.env.npm_config_build_from_source || "true",
   })
 
-  await patchBuildVscodeScript()
-
   if (platform === "linux") {
     await runBash(
       [
@@ -310,21 +308,6 @@ async function walkDirectory(dirPath, visitor) {
       await walkDirectory(entryPath, visitor)
     }
   }
-}
-
-export async function patchBuildVscodeScript(scriptPath = path.join(codeServerRoot, "ci", "build", "build-vscode.sh")) {
-  const script = await readFile(scriptPath, "utf8")
-  const patchedScript = script.replace(
-    "VSCODE_QUALITY=stable npm run gulp compile-copilot-extension-full-build",
-    "VSCODE_QUALITY=stable npm run gulp compile-copilot-extension-build",
-  )
-
-  if (patchedScript === script) {
-    return false
-  }
-
-  await writeFile(scriptPath, patchedScript)
-  return true
 }
 
 export function shouldKeepWindowsNativeArtifact(entryName) {
